@@ -23,7 +23,7 @@ for i, (image_filename, angle) in enumerate(items):
 
     original = Image.open(full_path)
     angle_for_rotation = 360-float(angle)
-    rotated = original.rotate(angle_for_rotation, expand=True, fillcolor='white')
+    rotated = original.rotate(angle_for_rotation, expand=True, fillcolor=(245, 245, 245)) # background color is (245, 245, 245)
 
     # Left column: original
     axes[i, 0].imshow(original)
