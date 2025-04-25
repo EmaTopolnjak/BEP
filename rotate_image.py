@@ -4,8 +4,8 @@ from PIL import Image
 import os
 import random
 
-path = 'data/image_rotations.json'
-folder_images = 'C:/Ema/TUe_BMT_bachelor/jaar_3/BEP/tissue_alignment/data/images/HE_crops_masked'
+path = 'data/rotations_HE/image_rotations_HE.json'
+folder_images = '../../tissue_alignment/data/images/HE_crops_masked'
 
 
 with open(path, 'r') as f:
