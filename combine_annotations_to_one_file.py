@@ -1,6 +1,6 @@
 import json
 
-def combine_information_from_json_files(file_paths, output_path='data/rotations_HE/image_rotations_HE.json'):
+def combine_information_from_json_files(file_paths, output_path):
     """
     Combine information from multiple JSON files into a single JSON file.
     Each file contains a dictionary where the keys are image paths and the values are rotation angles.
@@ -8,7 +8,7 @@ def combine_information_from_json_files(file_paths, output_path='data/rotations_
 
     Parameters:
     file_paths (list): List of paths to the JSON files to be combined.
-    output_path (str): Path to save the combined JSON file. Default is 'data/image_rotations.json'.
+    output_path (str): Path to save the combined JSON file. 
     
     Returns:
     None. The combined data is saved to 'data/image_rotations.json'.
@@ -42,7 +42,8 @@ def combine_information_from_json_files(file_paths, output_path='data/rotations_
 
 if __name__ == "__main__":
     # List of file paths to the JSON files to be combined
-    file_paths = ['data/rotations_HE/image_rotations_HE_pt1.json', 'data/rotations_HE/image_rotations_HE_pt2.json', 'data/rotations_HE/image_rotations_HE_pt3.json']
+    file_paths = ['data/rotations_IHC/image_rotations_IHC_pt1.json', 'data/rotations_IHC/image_rotations_IHC_pt2.json', 'data/rotations_IHC/image_rotations_IHC_pt3.json']
+    output_path = 'data/rotations_IHC/image_rotations_IHC.json'
 
-    combine_information_from_json_files(file_paths)
+    combine_information_from_json_files(file_paths, output_path)
     print("Combined JSON file created successfully.")

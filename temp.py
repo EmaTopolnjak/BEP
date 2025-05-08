@@ -2,6 +2,7 @@ import os
 import json
 from PIL import Image
 import numpy as np
+import matplotlib.pyplot as plt
 import math
 
 
@@ -70,7 +71,6 @@ def pad_to_complete_number_of_patches(image, mask, patch_size=16, bg_color=(245,
     return padded_image, padded_mask
 
 
-
 def rotate_image_with_correct_padding(image, mask, angle):
     """ Rotate the image by the given angle and return the rotated image. The background 
     color is set to (245, 245, 245). The image is centered on a square canvas.
@@ -99,7 +99,7 @@ def rotate_image_with_correct_padding(image, mask, angle):
     # Convert to RGB (remove alpha) and save
     padded_image = padded_image.convert("RGB")
 
-    return padded_image
+    return padded_image, padded_mask
 
     
 
@@ -117,6 +117,7 @@ if __name__ == "__main__":
 
     os.makedirs(rotated_images_path, exist_ok=True) # Create the output directory if it doesn't exist
 
+    counter = 0
     for filename, angle in rotation_info.items(): # Iterate through the dictionary with rotation info
         # Construct the full path to the input and output images
         input_path_image = os.path.join(original_images_path, filename)
@@ -132,9 +133,32 @@ if __name__ == "__main__":
         try:
             img = Image.open(input_path_image)
             mask = Image.open(input_path_mask)
-            output_image = rotate_image_with_correct_padding(img, mask, float(angle))
-            output_image.save(output_path)
+
+            image, mask = rotate_image_with_correct_padding(img, mask, float(angle))
+           
+
+
+            fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+
+            axes[0].imshow(image)
+            axes[0].set_title("Image")
+            axes[0].axis("off")
+
+            axes[1].imshow(mask, cmap="gray")
+            axes[1].set_title("Mask")
+            axes[1].axis("off")
+
+            plt.tight_layout()
+            plt.show()
+
+            print(image.size, mask.size)
+
+        #     rotated_image.save(output_path)
 
         except Exception as e:
             print(f"Error processing {filename}: {e}")
             continue
+        
+        counter += 1
+        if counter > 2:
+            break
