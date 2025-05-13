@@ -42,8 +42,8 @@ def combine_information_from_json_files(file_paths, output_path):
 
 if __name__ == "__main__":
     # List of file paths to the JSON files to be combined
-    file_paths = ['data/rotations_IHC/image_rotations_IHC_pt1.json', 'data/rotations_IHC/image_rotations_IHC_pt2.json', 'data/rotations_IHC/image_rotations_IHC_pt3.json']
-    output_path = 'data/rotations_IHC/image_rotations_IHC.json'
+    file_paths = ['../../Data/ground_truth_rotations_IHC/image_rotations_IHC_pt1.json', '../../Data/ground_truth_rotations_IHC/image_rotations_IHC_pt2.json', '../../Data/ground_truth_rotations_IHC/image_rotations_IHC_pt3.json', '../../Data/ground_truth_rotations_IHC/image_rotations_IHC_pt4.json']
+    output_path = '../../Data/ground_truth_rotations_IHC/image_rotations_IHC.json'
 
     combine_information_from_json_files(file_paths, output_path)
     print("Combined JSON file created successfully.")

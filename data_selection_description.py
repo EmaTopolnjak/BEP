@@ -36,6 +36,49 @@ def analyze_skipped_entries(data):
 
     
 
+def analyze_number_slices_left(data, stain, details=False):
+    """ Analyzes the number of slices left in the data. 
+
+    Parameters:
+    data (dict): The data to analyze. The data should be a dictionary where each key is an image filename and the value is a dictionary
+                 containing rotation information and possibly a "skipped" key.
+    stain (str): The type of stain to analyze. It can be "HE" or "IHC".
+    details (bool): If True, prints detailed information about the number of slices left per stain. Default is False.
+
+    Returns:
+    None. The function prints the number of slices left. """
+
+    if stain == "HE":
+        counts = 0
+        for key, value in data.items():
+            if not (isinstance(value, dict) and "skipped" in value):
+                counts += 1
+        print("Number of images after rotating:", counts)
+
+    if stain == "IHC":
+        stain_counts = defaultdict(int)
+        for key, value in data.items():
+            if not (isinstance(value, dict) and "skipped" in value):
+                parts = key.split("_")
+                if len(parts) > 1:
+                    stain = parts[2]
+                    stain_counts[stain] += 1
+
+        ihc_values = list(stain_counts.values())
+
+        print("Number of images after rotating:", sum(ihc_values))
+        print("  median per stain:", statistics.median(ihc_values))
+        print("  min per stain:", min(ihc_values))
+        print("  max per stain:", max(ihc_values))
+        print("  number of stain:", len(ihc_values))
+
+        if details:
+            print("  details per stain:")
+            for stain, count in stain_counts.items():
+                print(f"    {stain}: {count}")
+
+
+
 def get_removed_cases(data):
     """ Analyzes the removed cases in the given data. 
 
@@ -60,44 +103,11 @@ def get_removed_cases(data):
         if all(isinstance(item, dict) and 'skipped' in item for item in items):
             fully_removed.append(prefix)
 
+    total_cases = len(grouped)
+    remaining_cases = total_cases - len(fully_removed)
+
     print(f"Number of removed cases: {len(fully_removed)}")
-
-
-
-def analyze_number_slices_left(data, stain):
-    """ Analyzes the number of slices left in the data. 
-
-    Parameters:
-    data (dict): The data to analyze. The data should be a dictionary where each key is an image filename and the value is a dictionary
-                 containing rotation information and possibly a "skipped" key.
-    stain (str): The type of stain to analyze. It can be "HE" or "IHC".
-
-    Returns:
-    None. The function prints the number of slices left. """
-
-    if stain == "HE":
-        counts = 0
-        for key, value in data.items():
-            if not (isinstance(value, dict) and "skipped" in value):
-                counts += 1
-        print("total slices left:", counts)
-
-    if stain == "IHC":
-        stain_counts = defaultdict(int)
-        for key, value in data.items():
-            if not (isinstance(value, dict) and "skipped" in value):
-                parts = key.split("_")
-                if len(parts) > 1:
-                    stain = parts[2]
-                    stain_counts[stain] += 1
-
-        ihc_values = list(stain_counts.values())
-
-        print("Total slices left:", sum(ihc_values))
-        print("  mean per stain:", statistics.mean(ihc_values))
-        print("  min per stain:", min(ihc_values))
-        print("  max per stain:", max(ihc_values))
-        print("  number of stain:", len(ihc_values))
+    print(f"Number of remaining cases: {remaining_cases}")
 
 
 
@@ -105,8 +115,7 @@ if __name__ == "__main__":
 
     # VARIABLES
     stains = ['HE', 'IHC']
-    rotation_info_paths = ['data/rotations_HE/image_rotations_HE.json', 'data/rotations_IHC/image_rotations_IHC.json']
-
+    rotation_info_paths = ['../../Data/ground_truth_rotations_HE/image_rotations_HE.json', '../../Data/ground_truth_rotations_IHC/image_rotations_IHC.json']
 
     for stain, rotations_path in zip(stains, rotation_info_paths):
         # Load JSON file
@@ -117,10 +126,11 @@ if __name__ == "__main__":
 
         # Analyze skipped entries
         analyze_skipped_entries(data)
-        
+                
+        # Analyze number of slices left (per stain)
+        analyze_number_slices_left(data, stain, details=True)
+
         # Analyze removed cases
         get_removed_cases(data)
-        
-        # Analyze number of slices left (per stain)
-        analyze_number_slices_left(data, stain)
+
         print("\n")	
