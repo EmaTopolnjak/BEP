@@ -99,17 +99,18 @@ def rotate_image_with_correct_padding(image, mask, angle):
     # Convert to RGB (remove alpha) and save
     padded_image = padded_image.convert("RGB")
 
-    return padded_image
+    return padded_image, padded_mask
 
     
 
 if __name__ == "__main__":
 
     # VARIABLES
-    rotation_info_path = 'data/rotations_HE/image_rotations_HE.json'
-    original_images_path = '../../tissue_alignment/data/images/HE_crops_masked'
-    original_masks_path = '../../tissue_alignment/data/annotations/HE_crops'
-    rotated_images_path = 'data/HE_images_rotated'
+    rotation_info_path = '../../Data/ground_truth_rotations_IHC/image_rotations_IHC.json'
+    original_images_path = '../../Data/images/IHC_crops_masked'
+    original_masks_path = '../../Data/annotations/IHC_crops'
+    rotated_images_path = '../../Data/images/IHC_crops_masked_rotated'
+    rotated_masks_path = '../../Data/annotations/IHC_crops_rotated'
 
     # Load the rotation info
     with open(rotation_info_path, 'r') as f:
@@ -121,7 +122,8 @@ if __name__ == "__main__":
         # Construct the full path to the input and output images
         input_path_image = os.path.join(original_images_path, filename)
         input_path_mask = os.path.join(original_masks_path, filename)
-        output_path = os.path.join(rotated_images_path, filename)
+        output_path_image = os.path.join(rotated_images_path, filename)
+        output_path_mask = os.path.join(rotated_masks_path, filename)
 
         # Skip images if marked as "skipped"
         if isinstance(angle, dict) and "skipped" in angle:
@@ -132,8 +134,9 @@ if __name__ == "__main__":
         try:
             img = Image.open(input_path_image)
             mask = Image.open(input_path_mask)
-            output_image = rotate_image_with_correct_padding(img, mask, float(angle))
-            output_image.save(output_path)
+            output_image, output_mask = rotate_image_with_correct_padding(img, mask, float(angle))
+            output_image.save(output_path_image)
+            output_mask.save(output_path_mask)  
 
         except Exception as e:
             print(f"Error processing {filename}: {e}")

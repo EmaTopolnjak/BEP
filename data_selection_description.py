@@ -112,6 +112,8 @@ if __name__ == "__main__":
         # Load JSON file
         with open(rotations_path, "r") as f:
             data = json.load(f)
+        
+        print(f"Analyzing {stain} data...")	
 
         # Analyze skipped entries
         analyze_skipped_entries(data)
