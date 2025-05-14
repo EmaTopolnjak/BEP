@@ -88,7 +88,7 @@ def patient_overlap_across_stains(stain_patient_counts, print_results=False):
 
 
 
-def split_dataset(flat_id_to_patient, stain_patient_counts, patient_to_stains, val_ratio=0.2, target_per_stain_test=47):
+def split_dataset(stain_patient_counts_IHC, patient_to_stains_IHC, patient_image_counts_HE, train_ratio=0.7, val_ratio=0.1, target_per_stain_test=91):
     """ Splits the dataset into train, validation, and test sets based on the specified ratios and target number of images per stain in the test set.
 
     Parameters:
@@ -102,7 +102,7 @@ def split_dataset(flat_id_to_patient, stain_patient_counts, patient_to_stains, v
         assigned_patients (dict): Dictionary with patients as keys and their assigned set (train/val/test) as values. """
 
     # Step 1: Shuffle patients 
-    all_patients = list(patient_to_stains.keys())
+    all_patients = list(patient_to_stains_IHC.keys())
     random.shuffle(all_patients)
 
     # Keep track of splitting
@@ -111,7 +111,7 @@ def split_dataset(flat_id_to_patient, stain_patient_counts, patient_to_stains, v
 
     # Step 2: test set filling
     stain_test_counts = Counter() # dict. containing stain: nr_image_in_test_set
-    for stain, patient_counts in stain_patient_counts.items():
+    for stain, patient_counts in stain_patient_counts_IHC.items():
         while stain_test_counts[stain] < target_per_stain_test:
             candidates = [(patient, patient_counts[patient]) for patient in patient_counts if patient in remaining_patients]
             if not candidates:
@@ -120,23 +120,23 @@ def split_dataset(flat_id_to_patient, stain_patient_counts, patient_to_stains, v
             images_needed = target_per_stain_test - stain_test_counts[stain]
 
             # if more than 2/3 full, use closest-fit strategy
-            if stain_test_counts[stain] >= (2/3) * target_per_stain_test:
+            if stain_test_counts[stain] >= (5/6) * target_per_stain_test:
                 # Closest-fit: minimize overshoot
                 best_patient, _ = min(candidates, key=lambda x: abs(images_needed - x[1])) 
             else:
                 # Encourage more patients: choose randomly from the candidates
-                best_patient, _ = random.choice(candidates) # or minimal to encourage more patients? --> min(candidates, key=lambda x: x[1])
+                best_patient, _ = random.choice(candidates) # or minimal to encourage more patients? --> min(candidates, key=lambda x: x[1])  
                         
             # Assign to test set
             assigned_patients[best_patient] = "test"
             remaining_patients.remove(best_patient)
 
             # Update test counts for all stains this patient touches because they are all in the test set
-            for s in patient_to_stains[best_patient]:
-                stain_test_counts[s] += stain_patient_counts[s].get(best_patient, 0)
+            for s in patient_to_stains_IHC[best_patient]:
+                stain_test_counts[s] += stain_patient_counts_IHC[s].get(best_patient, 0)
 
     # Step 3: Assign remaining patients to train and validation sets
-    val_cutoff = int(len(remaining_patients) * val_ratio)
+    val_cutoff = int(len(remaining_patients) * val_ratio/(val_ratio+train_ratio))
     val_patients = list(remaining_patients)[:val_cutoff]
     train_patients = list(remaining_patients)[val_cutoff:]
 
@@ -146,9 +146,12 @@ def split_dataset(flat_id_to_patient, stain_patient_counts, patient_to_stains, v
         assigned_patients[p] = "train"
 
     # Step 4: Assign remainging patients to train set (patients that are not in IHC images but in HE images)
-    for patient in set(flat_id_to_patient.values()):
-        if patient not in assigned_patients:
+    nr_images_extra_in_train = 0
+    for patient in set(patient_image_counts_HE.keys()):
+        if patient not in assigned_patients.keys():
+            nr_images_extra_in_train += 1
             assigned_patients[patient] = "train"
+    print(f"{nr_images_extra_in_train} patients in train set that are not in IHC images but in HE images\n")
 
     return assigned_patients
 
@@ -233,7 +236,7 @@ if __name__ == "__main__":
     patient_to_stains_IHC = patient_overlap_across_stains(stain_patient_counts_IHC)
     
     # Split the dataset
-    assigned_split = split_dataset(flat_id_to_patient, stain_patient_counts_IHC, patient_to_stains_IHC, val_ratio=0.2, target_per_stain_test=47)
+    assigned_split = split_dataset(stain_patient_counts_IHC, patient_to_stains_IHC, patient_image_counts_HE, train_ratio=0.7, val_ratio=0.1, target_per_stain_test=91)
 
     # Analyze the split
     analyze_split(assigned_split, patient_image_counts_IHC, patient_image_counts_HE, stain_patient_counts_IHC)
