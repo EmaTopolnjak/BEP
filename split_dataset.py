@@ -2,6 +2,7 @@ import random
 from collections import defaultdict, Counter
 import json
 from pathlib import Path
+import config
 
 # set seed for reproducibility
 random.seed(42)
@@ -211,11 +212,11 @@ def analyze_split(assigned_patients, patient_image_counts_IHC, patient_image_cou
 
 if __name__ == "__main__":
 
-    # VARIABLES     
-    patient_mapping_path = '../../Data/splitting_data/patient_mapping.json'
-    files_HE = '../../Data/images/HE_crops_masked_rotated'
-    files_IHC = '../../Data/images/IHC_crops_masked_rotated'
-    assigned_split_path = '../../Data/splitting_data/assigned_split.json'
+    # Load the configuration    
+    patient_mapping_path = config.patient_mapping
+    files_HE = config.HE_crops_masked_rotated
+    files_IHC = config.IHC_crops_masked_rotated
+    assigned_split_path = config.assigned_split
     
     # Load the patient to ID mapping
     with open(patient_mapping_path, "r") as f:

@@ -3,14 +3,13 @@ import json
 from PIL import Image
 import os
 import random
+import config
 
-path = 'data/rotations_HE/image_rotations_HE.json'
-folder_images = '../../tissue_alignment/data/images/HE_crops_masked'
-
+path = config.HE_ground_truth_rotations
+folder_images = config.HE_crops_masked
 
 with open(path, 'r') as f:
     data = json.load(f)
-
 
 # Take 5 random images from the dictionary
 items = random.sample(list(data.items()), 5)

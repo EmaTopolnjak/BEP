@@ -1,4 +1,5 @@
 import json
+import config
 
 def combine_information_from_json_files(file_paths, output_path):
     """
@@ -39,11 +40,17 @@ def combine_information_from_json_files(file_paths, output_path):
 
 
 
-
 if __name__ == "__main__":
-    # List of file paths to the JSON files to be combined
-    file_paths = ['../../Data/ground_truth_rotations_IHC/image_rotations_IHC_pt1.json', '../../Data/ground_truth_rotations_IHC/image_rotations_IHC_pt2.json', '../../Data/ground_truth_rotations_IHC/image_rotations_IHC_pt3.json', '../../Data/ground_truth_rotations_IHC/image_rotations_IHC_pt4.json']
-    output_path = '../../Data/ground_truth_rotations_IHC/image_rotations_IHC.json'
+    # Load the configuration
+    filepaths_HE = config.HE_ground_truth_rotations_seperate
+    output_path_HE = config.HE_ground_truth_rotations
+    filepaths_IHC = config.IHC_ground_truth_rotations_seperate
+    output_path_IHC = config.IHC_ground_truth_rotations
 
-    combine_information_from_json_files(file_paths, output_path)
-    print("Combined JSON file created successfully.")
+    filepaths = [filepaths_HE, filepaths_IHC]
+    output_path = [output_path_HE, output_path_IHC]
+
+    for filepaths, output_path in zip(filepaths, output_path):
+        # Combine the JSON files
+        combine_information_from_json_files(filepaths, output_path)
+        print(f"Combined JSON file created successfully at {output_path}.")

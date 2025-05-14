@@ -1,6 +1,7 @@
 import json
 from collections import Counter, defaultdict
 import statistics
+import config
 
 
 
@@ -112,10 +113,12 @@ def get_removed_cases(data):
 
 
 if __name__ == "__main__":
-
-    # VARIABLES
+    # Load the configuration
     stains = ['HE', 'IHC']
-    rotation_info_paths = ['../../Data/ground_truth_rotations_HE/image_rotations_HE.json', '../../Data/ground_truth_rotations_IHC/image_rotations_IHC.json']
+    HE_ground_truth_rotations = config.HE_ground_truth_rotations
+    IHC_ground_truth_rotations = config.IHC_ground_truth_rotations
+
+    rotation_info_paths = [HE_ground_truth_rotations, IHC_ground_truth_rotations]
 
     for stain, rotations_path in zip(stains, rotation_info_paths):
         # Load JSON file

@@ -3,6 +3,7 @@ import json
 from PIL import Image
 import numpy as np
 import math
+import config
 
 
 def crop_to_mask(image, mask):
@@ -105,12 +106,12 @@ def rotate_image_with_correct_padding(image, mask, angle):
 
 if __name__ == "__main__":
 
-    # VARIABLES
-    rotation_info_path = '../../Data/ground_truth_rotations_IHC/image_rotations_IHC.json'
-    original_images_path = '../../Data/images/IHC_crops_masked'
-    original_masks_path = '../../Data/annotations/IHC_crops'
-    rotated_images_path = '../../Data/images/IHC_crops_masked_rotated'
-    rotated_masks_path = '../../Data/annotations/IHC_crops_rotated'
+    # Load the configuration
+    rotation_info_path = config.IHC_ground_truth_rotations
+    original_images_path = config.IHC_crops_masked
+    original_masks_path = config.IHC_masks
+    rotated_images_path = config.IHC_crops_masked_rotated
+    rotated_masks_path = config.IHC_masks_rotated
 
     # Load the rotation info
     with open(rotation_info_path, 'r') as f:
