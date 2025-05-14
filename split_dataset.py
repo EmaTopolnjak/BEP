@@ -3,6 +3,7 @@ from collections import defaultdict, Counter
 import json
 from pathlib import Path
 import config
+import shutil
 
 # set seed for reproducibility
 random.seed(42)
@@ -158,7 +159,7 @@ def split_dataset(stain_patient_counts_IHC, patient_to_stains_IHC, patient_image
 
 
 
-def analyze_split(assigned_patients, patient_image_counts_IHC, patient_image_counts_HE, stain_patient_counts_IHC):
+def analyze_split(assigned_patients, patient_to_stains_IHC, patient_image_counts_IHC, patient_image_counts_HE, stain_patient_counts_IHC):
     """ Analyzes the split of the dataset into train, validation, and test sets.
     
     Parameters:
@@ -210,6 +211,50 @@ def analyze_split(assigned_patients, patient_image_counts_IHC, patient_image_cou
 
 
 
+def organize_images_by_split(data_folder, assigned_split, flat_id_to_patient):
+    """ Organizes images into train, validation, and test folders based on the assigned split.
+    
+    Parameters:
+        data_folder (Path): Path to the folder containing the images.
+        assigned_split (dict): Dictionary with patients as keys and their assigned set (train/val/test) as values.
+        flat_id_to_patient (dict): Dictionary mapping idnr to patient.
+        
+    Returns:
+        None. The function moves the images into the corresponding folders. """
+
+    output_dirs = {"train": data_folder / "train", "val": data_folder / "val", "test": data_folder / "test"}
+
+    # Create output subfolders
+    for path in output_dirs.values():
+        path.mkdir(parents=True, exist_ok=True)
+
+    # Loop over all images in the folder
+    for img_path in data_folder.iterdir():
+        if not img_path.is_file() or img_path.name in output_dirs:
+            continue
+
+        # Extract ID from filename 
+        parts = img_path.stem.split("_")
+        idnr = parts[3] + '_' + parts[4]
+        patient = flat_id_to_patient.get(idnr)
+
+        if not patient:
+            print(f"No patient found for ID: {idnr}")
+            continue
+
+        split = assigned_split.get(patient)
+        if not split:
+            print(f"No split found for patient: {patient}")
+            continue
+
+        # Copy to corresponding folder
+        dest_path = output_dirs[split] / img_path.name
+        shutil.move(img_path, dest_path)
+
+    print(f"Image organization complete for {data_folder}.")
+
+
+
 if __name__ == "__main__":
 
     # Load the configuration    
@@ -240,8 +285,12 @@ if __name__ == "__main__":
     assigned_split = split_dataset(stain_patient_counts_IHC, patient_to_stains_IHC, patient_image_counts_HE, train_ratio=0.7, val_ratio=0.1, target_per_stain_test=91)
 
     # Analyze the split
-    analyze_split(assigned_split, patient_image_counts_IHC, patient_image_counts_HE, stain_patient_counts_IHC)
+    analyze_split(assigned_split, patient_to_stains_IHC, patient_image_counts_IHC, patient_image_counts_HE, stain_patient_counts_IHC)
 
     # Save the assigned split to a JSON file
     with open(assigned_split_path, "w") as f:
         json.dump(assigned_split, f, indent=4)
+
+    # Organize images into train, validation, and test folders
+    organize_images_by_split(files_HE, assigned_split, flat_id_to_patient)
+    organize_images_by_split(files_IHC, assigned_split, flat_id_to_patient)
