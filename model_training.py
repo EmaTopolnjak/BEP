@@ -120,6 +120,80 @@ class CustomViT(nn.Module):
 
 
 
+def run_validation(model, val_loader, max_batches=5):
+    model.eval()
+    total_loss = 0.0
+    count = 0
+
+    loss_fn = nn.MSELoss()
+
+    with torch.no_grad():
+        for batch_idx, (patches, labels, (grid_h, grid_w)) in enumerate(val_loader):
+            if batch_idx >= max_batches:
+                break  # Stop after 5 images
+
+            patches = patches
+            labels = labels.float().unsqueeze(1)
+
+            outputs = model(patches, grid_h=grid_h.item(), grid_w=grid_w.item())
+            loss = loss_fn(outputs, labels)
+
+            total_loss += loss.item()
+            count += 1
+
+    model.train()  # back to training mode
+    return total_loss / count if count > 0 else float('nan')
+
+
+
+def model_training(model, train_loader, val_loader, num_epochs=10, learning_rate=1e-4, accumulation_steps=8):
+
+    model.train()
+    print("\nStarting training...")
+    
+    loss_fn = nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer.zero_grad()
+
+    num_batches_to_try = 10  # for testing purposes, only train on a few batches 
+
+    for batch_idx, (patches, label, (grid_h, grid_w)) in enumerate(train_loader):
+        if batch_idx >= num_batches_to_try:
+            break  # stop after a few batches
+
+        label = label.float().unsqueeze(1)
+
+        # Forward pass
+        outputs = model(patches, grid_h=grid_h.item(), grid_w=grid_w.item())
+
+        # Compute loss
+        loss = loss_fn(outputs, label)
+
+        # Scale loss so final update is an average
+        loss = loss / accumulation_steps
+
+        # Backward pass 
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        # Update the model every 'accumulation_steps' batches
+        if (batch_idx + 1) % accumulation_steps == 0:
+            optimizer.step()
+            optimizer.zero_grad()
+            print(f"[Batch {batch_idx}] Update! Loss: {loss.item():.4f}")
+
+            # Run validation
+            val_loss = run_validation(model, val_loader, max_batches=5)
+            print(f"[Validation] Loss after update: {val_loss:.4f}")
+
+        else:
+            print(f"[Batch {batch_idx}] Accumulating. Loss: {loss.item():.4f}")
+
+
+
+
+
 if __name__ == "__main__":
     
     # Load the configurations
@@ -131,39 +205,32 @@ if __name__ == "__main__":
     HE_train = HE_crops_for_model + '/train'
     image_paths_train = [os.path.join(HE_train, fname) for fname in os.listdir(HE_train) if fname.lower().endswith(('.jpg', '.jpeg', '.png'))]
 
+    HE_val = HE_crops_for_model + '/val'
+    image_paths_val = [os.path.join(HE_val, fname) for fname in os.listdir(HE_val) if fname.lower().endswith(('.jpg', '.jpeg', '.png'))]
+
     # Load the labels
     with open(HE_ground_truth_rotations, 'r') as f:
         label_dict = json.load(f)
+    
     labels_train = [label_dict[os.path.basename(path)] for path in image_paths_train]
-    labels_train = torch.tensor(labels_train) / 360 # Normalize labels to [0, 1] range 
+    labels_train = torch.tensor(labels_train) / 360 # Normalize labels to [0, 1] range
+    labels_val = [label_dict[os.path.basename(path)] for path in image_paths_val]
+    labels_val = torch.tensor(labels_val) / 360 # Normalize labels to [0, 1] range 
 
     # Create the dataset and dataloader
-    dataset = ImageDataset(image_paths=image_paths_train, labels=labels_train)
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=False) # TODO: for now, only batch size of 1 works - modify this later?
+    train_data = ImageDataset(image_paths=image_paths_train, labels=labels_train)
+    train_loader = DataLoader(train_data, batch_size=1, shuffle=False) # TODO: for now, only batch size of 1 works - modify this later?
+    val_data = ImageDataset(image_paths=image_paths_val, labels=labels_val)
+    val_loader = DataLoader(val_data, batch_size=1, shuffle=False) 
 
     # Load the model
     pretrained_model = ViTForImageClassification.from_pretrained(model_name)
 
     # # Create the custom model
     model = CustomViT(pretrained_vit=pretrained_model)
-    model.eval() 
 
-    # # Get one batch (image) from the dataloader
-    # patches, label, (grid_h, grid_w) = next(iter(dataloader))
-
-    # # Forward pass (no gradients needed)
-    # for i, (patches, label, (grid_h, grid_w)) in enumerate(dataloader):
     
-    #     label = label.float().unsqueeze(1)
-        
-    #     with torch.no_grad():
-    #         output = model(patches, grid_h=grid_h.item(), grid_w=grid_w.item())
-
-    #     print(f"Image {i}: Prediction = {output.item()}, Ground truth = {label.item()}")
-
-    #     if i >= 20:  # test first 5 images
-    #         break
-
+    model_training(model, train_loader, val_loader, num_epochs=10, learning_rate=1e-4, accumulation_steps=8)
 
 
 
