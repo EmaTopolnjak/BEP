@@ -9,6 +9,7 @@ import torch.nn.functional as F
 import torchvision.transforms.functional as TF
 import numpy as np
 import json
+import matplotlib.pyplot as plt
 
 
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1" # Disable the warning for symlinks
@@ -36,6 +37,70 @@ class ImageDataset(Dataset):
     
 
 
+class PositionalEmbedder(nn.Module):
+
+    max_position_index = 100 # maximum number of positions
+
+    def __init__(self, embed_dim: int, dropout_prob: float):
+        super().__init__()
+        # initialize instance attributes
+        self.embed_dim = embed_dim
+        self.pos_embed = nn.Parameter(data=torch.zeros((self.max_position_index+1, self.embed_dim//2)), requires_grad=False) # (max_position_index+1, embed_dim//2)
+        X = torch.arange(self.max_position_index+1, dtype=torch.float32).reshape(-1, 1) # (max_position_index+1, 1)
+        X = X / torch.pow(10000, torch.arange(0, self.embed_dim//2, 2, dtype=torch.float32) / (self.embed_dim//2)) 
+        self.pos_embed[:, 0::2] = torch.sin(X)
+        self.pos_embed[:, 1::2] = torch.cos(X)
+
+        # initialize dropout layer
+        self.pos_drop = nn.Dropout(p=dropout_prob)
+
+
+
+    def forward(
+        self, x: torch.Tensor, pos: torch.Tensor) -> torch.Tensor:
+        pos = torch.round(pos).to(int)
+        if torch.max(pos[:, :, 1:]) > self.max_position_index:
+            raise ValueError(
+                'Maximum requested position index exceeds the prepared position indices.'
+            )
+        # get the number of items in the batch and the number of tokens in the sequence
+        B, S, _ = pos.shape 
+        device = self.pos_embed.get_device()
+        if device == -1:
+            device = 'cpu'
+
+        # define embeddings for x and y dimension
+        embeddings = [self.pos_embed[pos[:, :, 0], :],
+                      self.pos_embed[pos[:, :, 1], :]]
+        # add a row of zeros as padding in case the embedding dimension has an odd length
+        if self.embed_dim % 2 == 1:
+            embeddings.append(torch.zeros((B, S, 1), device=device))
+
+        # prepare positional embedding
+        pos_embedding = torch.concat(embeddings, dim=-1)
+
+        # account for [CLS] token
+        pos_embedding = torch.concatenate(
+            [torch.zeros((B, 1, self.embed_dim), device=device), pos_embedding], dim=1,
+        )
+        
+        plt.imshow(pos_embedding[0, ...])
+        plt.show()
+
+        # check if the shape of the features and positional embeddings match
+        if x.shape != pos_embedding.shape:
+            raise ValueError(
+                'Shape of features and positional embedding tensors do not match.',
+            )
+        # add the combined embedding to each element in the sequence
+        x = self.pos_drop(x+pos_embedding)
+        
+        return x
+
+
+
+
+
 class CustomViT(nn.Module):
     def __init__(self, pretrained_vit, patch_size=16):
         super().__init__()
@@ -48,7 +113,7 @@ class CustomViT(nn.Module):
             in_channels=3,
             out_channels=hidden_size,
             kernel_size=patch_size,
-            stride=patch_size
+            stride=patch_size,
         )
 
         # Use the same positional embedding and class token as the pretrained model
@@ -185,13 +250,19 @@ def model_training(model, train_loader, val_loader, num_epochs=10, learning_rate
 if __name__ == "__main__":
     
     # Load the configurations
-    model_name = config.model_name
     HE_ground_truth_rotations = config.HE_ground_truth_rotations
     HE_crops_for_model = config.HE_crops_for_model
-    batch_size = config.batch_size 
-    num_epochs = config.num_epochs
-    learning_rate = config.learning_rate
-    accumulation_steps = config.accumulation_steps
+
+    MODEL_NAME = config.model_name
+    BATCH_SIZE = config.batch_size 
+    NUM_EPOCHS = config.num_epochs
+    LEARNING_RATE = config.learning_rate
+    ACCUMULATIONS_STEPS = config.accumulation_steps
+    RANDOM_SEED = config.random_seed
+
+    # Set the random seed for reproducibility
+    torch.manual_seed(RANDOM_SEED)
+    np.random.seed(RANDOM_SEED)
 
     # Load the images
     HE_train = HE_crops_for_model + '/train'
@@ -209,19 +280,19 @@ if __name__ == "__main__":
 
     # Create the dataset and dataloader
     train_data = ImageDataset(image_paths=image_paths_train, labels=labels_train)
-    train_loader = DataLoader(train_data, batch_size=1, shuffle=False) # TODO: for now, only batch size of 1 works - modify this later?
+    train_loader = DataLoader(train_data, batch_size=1, shuffle=True) 
     val_data = ImageDataset(image_paths=image_paths_val, labels=labels_val)
     val_loader = DataLoader(val_data, batch_size=1, shuffle=False) 
 
     # Load the model
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    pretrained_model = ViTForImageClassification.from_pretrained(model_name).to(device) # Load the pretrained ViT model
+    pretrained_model = ViTForImageClassification.from_pretrained(MODEL_NAME).to(device) # Load the pretrained ViT model
 
     # Create the custom model
     model = CustomViT(pretrained_vit=pretrained_model)
 
     
-    model_training(model, train_loader, val_loader, num_epochs=num_epochs, learning_rate=learning_rate, accumulation_steps=accumulation_steps)
+    model_training(model, train_loader, val_loader, num_epochs=NUM_EPOCHS, learning_rate=LEARNING_RATE, accumulation_steps=ACCUMULATIONS_STEPS)
 
 
 

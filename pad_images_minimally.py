@@ -51,8 +51,17 @@ def pad_to_complete_number_of_patches(image, mask, patch_size=16, bg_color=(245,
     w, h = image.size
 
     # Compute target dimensions (next multiple of 16)
-    target_w = math.ceil(w / patch_size) * patch_size
-    target_h = math.ceil(h / patch_size) * patch_size
+    patch_w = math.ceil(w / patch_size) 
+    patch_h = math.ceil(h / patch_size) 
+
+    if patch_w % 2 == 0:
+        patch_w += 1
+    if patch_h % 2 == 0:
+        patch_h += 1
+
+    # Convert to pixel dimensions
+    target_w = patch_w * patch_size
+    target_h = patch_h * patch_size
 
     # Calculate padding
     x_pad = target_w - w
