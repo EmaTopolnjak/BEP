@@ -6,6 +6,7 @@ from PIL import Image
 import os
 import torch
 import torch.nn.functional as F
+import torchvision.transforms.functional as TF
 import numpy as np
 import json
 
@@ -15,11 +16,10 @@ os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1" # Disable the warning for sy
 
 
 class ImageDataset(Dataset):
-    def __init__(self, image_paths, labels, patch_size=16):
+    def __init__(self, image_paths, labels):
         # Initialize the dataset with image paths and labels
         self.image_paths = image_paths # List of image file paths
         self.labels = labels # List of labels corresponding to the images
-        self.patch_size = patch_size # Size of the patches to be extracted from the images
 
 
     def __len__(self):
@@ -29,42 +29,27 @@ class ImageDataset(Dataset):
     def __getitem__(self, idx):
         # Load image and label, and apply transformations (normalization, patchify)
         img = Image.open(self.image_paths[idx]).convert("RGB")
-        img = torch.from_numpy(np.array(img)).float() / 255.0  # Normalize to [0,1]
-        img = img.permute(2, 0, 1)  # From (H, W, C) to (C, H, W)
+        img = TF.to_tensor(img)  # Convert to tensor and normalize
         label = self.labels[idx]
 
-        # Manually patchify
-        patches = self._patchify(img) # (num_patches, C, patch_size, patch_size)
-
-        # Get grid size
-        grid_h = img.shape[1] // self.patch_size  # Height in patches
-        grid_w = img.shape[2] // self.patch_size  # Width in patches
-
-        return patches, label, (grid_h, grid_w)  
+        return img, label
     
-
-    def _patchify(self, img):
-        # Convert image to patches
-        C, H, W = img.shape
-        assert H % self.patch_size == 0 and W % self.patch_size == 0, \
-            f"Image dimensions ({H}, {W}) must be divisible by patch size {self.patch_size}"
-
-        patches = img.unfold(1, self.patch_size, self.patch_size).unfold(2, self.patch_size, self.patch_size) # Decompose into patches
-        
-        # Rearrange to (C, grid_h * grid_w, patch_size, patch_size)
-        patches = patches.contiguous().view(C, -1, self.patch_size, self.patch_size)
-        patches = patches.permute(1, 0, 2, 3)  # (num_patches, C, patch_size, patch_size)
-        
-        return patches
-
 
 
 class CustomViT(nn.Module):
-    def __init__(self, pretrained_vit, patch_dim=768):
+    def __init__(self, pretrained_vit, patch_size=16):
         super().__init__()
+        self.patch_size = patch_size
         self.vit = pretrained_vit # Load the pretrained ViT model
         hidden_size = pretrained_vit.config.hidden_size
-        self.proj = nn.Linear(3 * 16 * 16, hidden_size)  # flatten patch and project to hidden size
+        
+        # Patch embedding using Conv2d
+        self.patch_embed = nn.Conv2d(
+            in_channels=3,
+            out_channels=hidden_size,
+            kernel_size=patch_size,
+            stride=patch_size
+        )
 
         # Use the same positional embedding and class token as the pretrained model
         self.pos_embed_pretrained = pretrained_vit.vit.embeddings.position_embeddings
@@ -101,10 +86,13 @@ class CustomViT(nn.Module):
         return torch.cat((cls_pos, new_patch_pos), dim=1)  # (1, N+1, D)
 
 
-    def forward(self, x, grid_h, grid_w):
-        B, N, C, H, W = x.shape # (batch_size, num_patches, channels, height, width)
-        x = x.view(B, N, -1) # Flatten patches to (B, N, C*H*W)
-        x = self.proj(x)  # (B, N, hidden_size)
+    def forward(self, x):
+        B, C, H, W = x.shape # (batch_size, num_patches, channels, height, width)
+        
+        # Patchify using Conv2d
+        x = self.patch_embed(x)  # (B, hidden, H/16, W/16)
+        grid_h, grid_w = x.shape[2], x.shape[3]
+        x = x.flatten(2).transpose(1, 2)  # (B, N, hidden)
         
         # Interpolate positional embeddings and add class token
         pos_embed = self.interpolate_pos_embed(grid_h, grid_w)
@@ -115,7 +103,7 @@ class CustomViT(nn.Module):
         x = self.dropout(x)
         x = self.encoder(x).last_hidden_state
         x = self.norm(x)
-        x = torch.sigmoid(self.head(x[:, 0])) # regression head by only using the class token output and applying sigmoid to bound it to [0, 1]
+        x = self.head(x[:, 0]) # regression head by only using the class token output 
         return x
 
 
@@ -128,14 +116,14 @@ def run_validation(model, val_loader, max_batches=5):
     loss_fn = nn.MSELoss()
 
     with torch.no_grad():
-        for batch_idx, (patches, labels, (grid_h, grid_w)) in enumerate(val_loader):
+        for batch_idx, (image, label) in enumerate(val_loader):
             if batch_idx >= max_batches:
                 break  # Stop after 5 images
 
             patches = patches
             labels = labels.float().unsqueeze(1)
 
-            outputs = model(patches, grid_h=grid_h.item(), grid_w=grid_w.item())
+            outputs = model(image)
             loss = loss_fn(outputs, labels)
 
             total_loss += loss.item()
@@ -157,14 +145,14 @@ def model_training(model, train_loader, val_loader, num_epochs=10, learning_rate
 
     num_batches_to_try = 10  # for testing purposes, only train on a few batches 
 
-    for batch_idx, (patches, label, (grid_h, grid_w)) in enumerate(train_loader):
+    for batch_idx, (image, label) in enumerate(train_loader):
         if batch_idx >= num_batches_to_try:
             break  # stop after a few batches
 
         label = label.float().unsqueeze(1)
 
         # Forward pass
-        outputs = model(patches, grid_h=grid_h.item(), grid_w=grid_w.item())
+        outputs = model(image)
 
         # Compute loss
         loss = loss_fn(outputs, label)
@@ -200,6 +188,10 @@ if __name__ == "__main__":
     model_name = config.model_name
     HE_ground_truth_rotations = config.HE_ground_truth_rotations
     HE_crops_for_model = config.HE_crops_for_model
+    batch_size = config.batch_size 
+    num_epochs = config.num_epochs
+    learning_rate = config.learning_rate
+    accumulation_steps = config.accumulation_steps
 
     # Load the images
     HE_train = HE_crops_for_model + '/train'
@@ -213,9 +205,7 @@ if __name__ == "__main__":
         label_dict = json.load(f)
     
     labels_train = [label_dict[os.path.basename(path)] for path in image_paths_train]
-    labels_train = torch.tensor(labels_train) / 360 # Normalize labels to [0, 1] range
     labels_val = [label_dict[os.path.basename(path)] for path in image_paths_val]
-    labels_val = torch.tensor(labels_val) / 360 # Normalize labels to [0, 1] range 
 
     # Create the dataset and dataloader
     train_data = ImageDataset(image_paths=image_paths_train, labels=labels_train)
@@ -224,13 +214,14 @@ if __name__ == "__main__":
     val_loader = DataLoader(val_data, batch_size=1, shuffle=False) 
 
     # Load the model
-    pretrained_model = ViTForImageClassification.from_pretrained(model_name)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    pretrained_model = ViTForImageClassification.from_pretrained(model_name).to(device) # Load the pretrained ViT model
 
-    # # Create the custom model
+    # Create the custom model
     model = CustomViT(pretrained_vit=pretrained_model)
 
     
-    model_training(model, train_loader, val_loader, num_epochs=10, learning_rate=1e-4, accumulation_steps=8)
+    model_training(model, train_loader, val_loader, num_epochs=num_epochs, learning_rate=learning_rate, accumulation_steps=accumulation_steps)
 
 
 
