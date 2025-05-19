@@ -55,6 +55,21 @@ class ImageDataset(Dataset):
     
 
 
+
+class PatchEmbedder(nn.Module):
+    def __init__(self, patch_size, in_channels, embed_dim):
+        super().__init__()
+        # define the patch embedding layer
+        self.proj = nn.Conv2d(in_channels, embed_dim, kernel_size=patch_size, stride=patch_size)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.proj(x) # (x: (B, C, H, W) -> (B, C', H', W')
+        x = x.flatten(2, 3).transpose(1, 2) # [B, C, H, W] -> [B, H*W, C] = [B, S, D]
+
+        return x
+
+
+
 class PositionalEmbedder(nn.Module):
 
     max_position_index = 100 # maximum number of positions
@@ -118,133 +133,158 @@ class PositionalEmbedder(nn.Module):
 
 
 
-
 class CustomViT(nn.Module):
-    def __init__(self, model_name, dropout_prob, patch_size=16):
+    def __init__(self, model_name, patch_size, dropout_prob):
+
         super().__init__()
         self.patch_size = patch_size
-        self.vit = timm.create_model(model_name, pretrained=True, num_classes=0)
-        self.hidden_size = self.vit.embed_dim
         self.dropout_prob = dropout_prob
         
-        # Remove internal patch embedding
-        self.vit.patch_embed = nn.Identity()
-        self.vit.pos_drop = nn.Identity()
-        self.vit.pos_embed = None
-        self.vit.head = nn.Identity()
 
-        # Keep CLS toke, encoder blocks, and norm layer
-        self.cls_token = self.vit.cls_token
-        self.blocks = self.vit.blocks
-        self.norm = self.vit.norm
+        # Load the pre-trained ViT model
+        vit = timm.create_model(model_name, pretrained=True)
+        self.embed_dim = vit.embed_dim
 
-        self.dropout = nn.Dropout(self.dropout_prob) # Dropout layer for the input embeddings
+        # Patch embedding layer
+        self.patch_embed = PatchEmbedder(patch_size=patch_size, in_channels=3, embed_dim=self.embed_dim)
 
-        # Patch embedding using Conv2d
-        self.patch_embed = nn.Conv2d(
-            in_channels=3,
-            out_channels=self.hidden_size,
-            kernel_size=patch_size,
-            stride=patch_size,
+        # Replace the patch embedding layer with our custom patch embedder
+        self.positional_embedder = PositionalEmbedder(embed_dim=self.embed_dim, dropout_prob=dropout_prob)
+
+        # Reuse blocks and norm from the pretrained model
+        self.blocks = vit.blocks
+        self.norm = vit.norm
+
+        # Add cls token
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, self.embed_dim))
+
+        # Replace the head with a regression layer
+        # self.head = nn.Linear(self.embed_dim, 1) # linear head
+
+        self.head = nn.Sequential( # MLP head
+            nn.Linear(self.embed_dim, self.embed_dim // 2),
+            nn.LayerNorm(self.embed_dim // 2),
+            nn.GELU(),
+            nn.Dropout(0.1),
+            nn.Linear(self.embed_dim // 2, 1)
         )
 
-        # Define positional embedder
-        self.pos_embedder = PositionalEmbedder(
-            embed_dim=self.hidden_size,
-            dropout_prob=self.dropout_prob,
-        )
 
-        
-        self.head = nn.Linear(self.hidden_size, 1)  # For single output regression
+    def forward(self, x: torch.Tensor, pos: torch.Tensor) -> torch.Tensor:
 
+        # Patchify the image
+        x = self.patch_embed(x)
 
-    def forward(self, x): 
-        B, C, H, W = x.shape # (batch_size, num_patches, channels, height, width)
-        
-        # Patchify using Conv2d
-        x = self.patch_embed(x)  # (B, hidden, H/16, W/16)
-        x = x.flatten(2, 3).transpose(1, 2)  # (B, N, hidden)
-        
-        cls_tokens = self.cls_token.expand(B, -1, -1)
-        x = torch.cat((cls_tokens, x), dim=1)  
+        # CLS toen added
+        cls_tokens = self.cls_token.expand(x.shape[0], -1, -1)
+        # [B, S, D] -> [B, 1+S, D]
+        x = torch.cat((cls_tokens, x), dim=1)
 
-        x = self.dropout(x)
-        x = self.encoder(x).last_hidden_state
+        # add positional embeddings
+        # [B, 1+S, D] -> [B, 1+S, D]
+        x = self.positional_embedder(x, pos)     
+
+        # Pass through the transformer blocks
+        for block in self.blocks:
+            x = block(x)
+
+        # Normalize the output
         x = self.norm(x)
-        x = self.head(x[:, 0]) # regression head by only using the class token output 
-        return x
+
+        out = self.head(x[:, 0])  # Regression value
+
+        return out
 
 
 
-def run_validation(model, val_loader, max_batches=5):
-    model.eval()
-    total_loss = 0.0
-    count = 0
 
-    loss_fn = nn.MSELoss()
-
-    with torch.no_grad():
-        for batch_idx, (image, label) in enumerate(val_loader):
-            if batch_idx >= max_batches:
-                break  # Stop after 5 images
-
-            patches = patches
-            labels = labels.float().unsqueeze(1)
-
-            outputs = model(image)
-            loss = loss_fn(outputs, labels)
-
-            total_loss += loss.item()
-            count += 1
-
-    model.train()  # back to training mode
-    return total_loss / count if count > 0 else float('nan')
-
-
-
-def model_training(model, train_loader, val_loader, num_epochs=10, learning_rate=1e-4, accumulation_steps=8):
-
-    model.train()
-    print("\nStarting training...")
+def circular_mse_loss(pred_deg, target_deg):
+    """
+    Both pred_deg and target_deg: tensors in degrees, shape (B,)
+    """
     
-    loss_fn = nn.MSELoss()
+    diff = pred_deg - target_deg  # Step 1: compute raw difference 
+    wrapped_diff = torch.remainder(diff + 180, 360) - 180 # wrap difference to [-180, 180]
+    circular_mse = torch.mean(wrapped_diff ** 2) # calculate mean squared error
+    
+    return circular_mse
+
+
+
+
+
+
+def train_model(model, train_loader, val_loader, device, learning_rate, epochs=10, accumulation_steps=8, scheduler=None):
+    
+    model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    optimizer.zero_grad()
+    print("\nStarting training...")
 
-    num_batches_to_try = 10  # for testing purposes, only train on a few batches 
+    for epoch in range(epochs):
+        print(f"\nEpoch {epoch + 1}/{epochs}")
+        model.train()
+        running_loss = 0.0
 
-    for batch_idx, (image, label) in enumerate(train_loader):
-        if batch_idx >= num_batches_to_try:
-            break  # stop after a few batches
-
-        label = label.float().unsqueeze(1)
-
-        # Forward pass
-        outputs = model(image)
-
-        # Compute loss
-        loss = loss_fn(outputs, label)
-
-        # Scale loss so final update is an average
-        loss = loss / accumulation_steps
-
-        # Backward pass 
         optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
 
-        # Update the model every 'accumulation_steps' batches
-        if (batch_idx + 1) % accumulation_steps == 0:
-            optimizer.step()
-            optimizer.zero_grad()
-            print(f"[Batch {batch_idx}] Update! Loss: {loss.item():.4f}")
+        accumulation_count = 0  # Track number of accumulation steps
 
-            # Run validation
-            val_loss = run_validation(model, val_loader, max_batches=5)
-            print(f"[Validation] Loss after update: {val_loss:.4f}")
 
-        else:
-            print(f"[Batch {batch_idx}] Accumulating. Loss: {loss.item():.4f}")
+        for step, (image, label, pos) in enumerate(train_loader):
+            if step > 10:
+                break
+            image = image.to(device)
+            label = label.to(device).float().view(-1)  # ensure shape (B,)
+            pos = pos.to(device)
+
+            # Forward pass
+            output = model(image, pos)  # shape: (B, 1)
+            output = output.view(-1)  # shape: (B,)
+
+            loss = circular_mse_loss(output, label) / accumulation_steps
+            loss.backward()
+
+            # Accumulate gradients
+            if (step + 1) % accumulation_steps == 0:
+                optimizer.step()
+                optimizer.zero_grad()
+                accumulation_count += 1
+
+            running_loss += loss.item() * accumulation_steps  # undo scaled loss for logging
+            print(f"Step {step+1}/{len(train_loader)} | Loss: {loss.item():.4f}", end="\r")
+
+            if accumulation_count >= 5:
+                break  # Exit epoch after 5 accumulation steps
+
+        # Optional learning rate scheduler step
+        if scheduler:
+            scheduler.step()
+
+        avg_train_loss = running_loss / len(train_loader)
+
+        # ---- Validation ----
+        print("Validation step")
+        model.eval()
+        val_loss = 0.0
+        val_batches = 0
+        with torch.no_grad():
+            for image, label, pos in val_loader:
+                if val_batches >= 5:
+                    break
+
+                image = image.to(device)
+                label = label.to(device).float().view(-1)
+
+                output = model(image, pos).view(-1)
+                loss = circular_mse_loss(output, label)
+                val_loss += loss.item()
+
+                val_batches += 1
+                
+
+        avg_val_loss = val_loss / len(val_loader)
+
+        print(f"Epoch {epoch+1}/{epochs} | Train Loss: {avg_train_loss:.4f} | Val Loss (5 batches): {avg_val_loss:.4f}")
 
 
 
@@ -291,31 +331,7 @@ if __name__ == "__main__":
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Load the model
-    model = CustomViT(model_name=MODEL_NAME, dropout_prob=DROPOUT_PROB).to(device) # Set the dropout probability
-
-    
-    # model_training(model, train_loader, val_loader, num_epochs=NUM_EPOCHS, learning_rate=LEARNING_RATE, accumulation_steps=ACCUMULATIONS_STEPS)
+    model = CustomViT(model_name=MODEL_NAME, patch_size=16, dropout_prob=DROPOUT_PROB).to(device)
 
 
-    # look at first batch of images to see if the data is loaded correctly
-    for batch_idx, (image, label, pos) in enumerate(train_loader):
-        if batch_idx < 2:
-            continue  # stop after a few batches
-        if batch_idx > 2:
-            break
-
-        # print(image.shape)
-            
-        image = image.squeeze(0).permute(1, 2, 0).numpy()  # Convert to numpy array
-        label = label.item()
-
-        # plt.imshow(image)
-        # plt.title(f"Label: {label}")
-        # plt.axis('off')
-        # plt.show()
-
-        print(pos)
-        print(pos.shape)
-    
-    
+    train_model(model, train_loader, val_loader, device, LEARNING_RATE, epochs=NUM_EPOCHS, accumulation_steps=ACCUMULATIONS_STEPS, scheduler=None)
