@@ -300,9 +300,9 @@ def circular_mse_loss(pred_deg, target_deg):
     Returns:
         torch.Tensor: Circular Mean Squared Error Loss. """
     
-    diff = pred_deg - target_deg  # Step 1: compute raw difference 
-    wrapped_diff = torch.remainder(diff + 180, 360) - 180 # wrap difference to [-180, 180]
-    circular_mse = torch.mean(wrapped_diff ** 2) # calculate mean squared error
+    diff = pred_deg - target_deg  # Compute raw difference 
+    wrapped_diff = torch.remainder(diff + 180, 360) - 180 # Wrap difference to [-180, 180]
+    circular_mse = torch.mean(wrapped_diff ** 2) # Calculate mean squared error
     
     return circular_mse
 
@@ -397,7 +397,7 @@ def train_model(model, train_loader, val_loader, device, learning_rate, epochs, 
                 optimizer.zero_grad()
                 accumulation_count += 1
 
-        avg_train_loss = running_loss / (step+1) # Scale the loss for the number of images that were used 
+        avg_train_loss = running_loss / step # Scale the loss for the number of images that were used 
 
         # ---- Validation ----
         print("Validation step")
@@ -420,7 +420,7 @@ def train_model(model, train_loader, val_loader, device, learning_rate, epochs, 
                 loss = circular_mse_loss(output, label)
                 val_loss += loss.item()
 
-        avg_val_loss = val_loss / (step+1) # Scale the loss for the number of images that were used
+        avg_val_loss = val_loss / step # Scale the loss for the number of images that were used
 
         print(f"Epoch {epoch+1}/{epochs} | Train Loss: {avg_train_loss:.4f} | Val Loss (5 batches): {avg_val_loss:.4f}")
 
@@ -475,10 +475,13 @@ def apply_model_on_test_set(model, test_loader):
 
 
 
-def model_evaluation(all_labels, all_preds):
-    """ Evaluate the model using Mean Absolute Error (MAE), Mean Squared Error (MSE) and R-squared score.
+def model_evaluation(true_labels, all_preds):
+    """ Evaluate the model performance using Mean Absolute Error (MAE), Median Absolute Error (MedAE), Mean Squared Error (MSE) and accuracy within 5 
+    degrees, all for angluar error. The predictions and labels are expected to be in degrees. The function also plots the predictions vs labels and the 
+    histogram of angular differences.
+
     Parameters:
-        all_labels (np.ndarray): Array of labels.
+        true_labels (np.ndarray): Array of true labels.
         all_preds (np.ndarray): Array of predictions.
     Returns:
         None. Prints the evaluation metrics.
@@ -486,19 +489,39 @@ def model_evaluation(all_labels, all_preds):
     Note: The labels and predictions are expected to be in degrees.
     Note: Choose correct metrics to evaluate the model on later. For now, random metrics were chosen to see if the model is working. """
 
-    # Calculate the mean absolute error
-    mae = np.mean(np.abs(all_labels - all_preds))
-    print(f"Mean Absolute Error: {mae:.4f}")
+    diff = true_labels - all_preds  # Compute raw difference 
+    wrapped_diff = np.remainder(diff + 180, 360) - 180 # wrap difference to [-180, 180]
 
-    # Calculate the mean squared error
-    mse = np.mean((all_labels - all_preds) ** 2)
-    print(f"Mean Squared Error: {mse:.4f}")
+    # Metrics
+    mae = np.mean(np.abs(wrapped_diff))
+    medae = np.median(np.abs(wrapped_diff))
+    mse = np.mean(wrapped_diff ** 2)
+    acc_5 = np.mean(np.abs(wrapped_diff) <= 5)  # Accuracy within 5 degrees
 
-    # Calculate the R-squared score
-    ss_res = np.sum((all_labels - all_preds) ** 2)
-    ss_tot = np.sum((all_labels - np.mean(all_labels)) ** 2)
-    r_squared = 1 - (ss_res / ss_tot)
-    print(f"R-squared: {r_squared:.4f}")
+    # Print the metrics
+    print(f"MAE: {mae:.4f} degrees")
+    print(f"Median MAE: {medae:.4f} degrees")
+    print(f"MSE: {mse:.4f} degrees")
+    print(f"Accuracy within 5 degrees: {acc_5:.4f}")
+
+    # Plot the predictions vs labels
+    plt.figure()
+    plt.scatter(true_labels, all_preds, alpha=0.6)
+    plt.plot([0, 360], [0, 360], '--', color='gray')  # y=x line
+    plt.xlabel("Ground Truth (°)")
+    plt.ylabel("Prediction (°)")
+    plt.title("Prediction vs Ground Truth")
+    plt.grid(True)
+    plt.show()
+
+    # Plote the histogram of angluar differencesd
+    plt.figure()
+    plt.hist(wrapped_diff, bins=50, edgecolor='black')
+    plt.xlabel("Angular Error (degrees)")
+    plt.ylabel("Frequency")
+    plt.title("Distribution of Angular Errors")
+    plt.show()
+    
 
 
 
@@ -547,26 +570,20 @@ if __name__ == "__main__":
     model = ViT_for_rotation_prediction(model_name=MODEL_NAME, patch_size=16, dropout_prob=DROPOUT_PROB).to(device)
 
     # # Model training
-    optimized_model = train_model(model, train_loader, val_loader, device, LEARNING_RATE, epochs=NUM_EPOCHS, accumulation_steps=ACCUMULATIONS_STEPS, save_training_plot_path=TRAINING_PLOT_PATH, trained_model_path=TRAINED_MODEL_PATH)
+    # optimized_model = train_model(model, train_loader, val_loader, device, LEARNING_RATE, epochs=NUM_EPOCHS, accumulation_steps=ACCUMULATIONS_STEPS, save_training_plot_path=TRAINING_PLOT_PATH, trained_model_path=TRAINED_MODEL_PATH)
 
-    # Apply the model on the test set: for now on validation set
-    test_labels, test_pred = apply_model_on_test_set(optimized_model, val_loader)
-    print("Test set predictions and labels directly after training model:")
-    print(test_labels)
-    print(test_pred)
+    # # Apply the model on the test set: for now on validation set
+    # test_labels, test_pred = apply_model_on_test_set(optimized_model, val_loader)
+    # print("Test set predictions and labels directly after training model:")
+    # print(test_labels)
+    # print(test_pred)
 
-    # Model evaluation
-    model_evaluation(test_labels, test_pred)
+    # # Model evaluation
+    # model_evaluation(test_labels, test_pred)
 
     ## TRYING TO LOAD THE SAVED MODEL
     model.load_state_dict(torch.load(TRAINED_MODEL_PATH))
 
-    # Apply the model on the test set: for now on validation set
-    test_labels, test_pred = apply_model_on_test_set(model, val_loader)
-    print("Test set predictions and labels after loading saved model:")
-    print(test_labels)
-    print(test_pred)
-
     # Model evaluation
+    test_labels, test_pred = apply_model_on_test_set(model, val_loader)
     model_evaluation(test_labels, test_pred)
-
