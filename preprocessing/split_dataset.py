@@ -2,8 +2,13 @@ import random
 from collections import defaultdict, Counter
 import json
 from pathlib import Path
-import config
 import shutil
+
+import sys
+from pathlib import Path
+# Add parent directory to sys.path
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+import config
 
 # set seed for reproducibility
 random.seed(42)

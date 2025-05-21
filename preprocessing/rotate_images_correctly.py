@@ -1,8 +1,14 @@
 import os
 import json
-from PIL import Image
+from PIL import Image, ImageOps
 import numpy as np
 import math
+import matplotlib.pyplot as plt
+
+import sys
+from pathlib import Path
+# Add parent directory to sys.path
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 import config
 
 
@@ -35,39 +41,87 @@ def crop_to_mask(image, mask):
 
 
 
-def pad_to_complete_number_of_patches(image, mask, patch_size=16, bg_color=(245, 245, 245, 255)):
-    """ Pad the image and mask to the next multiple of 16 in both dimensions.
+def get_centroid_of_mask(mask):
+    """ Get the centroid of the mask.
 
     Parameters:
-    image (PIL.Image): The image to be padded.
-    mask (PIL.Image): The mask to be padded.
-    patch_size (int): The size of the patches. Default is 16.
-    bg_color (tuple): The background color for padding. Default is (245, 245, 245, 255).
+    mask (PIL.Image): The mask to find the centroid of.
+
+    Returns:
+    centroid (tuple): The (x, y) coordinates of the centroid. """
+
+    # Convert to numpy array
+    mask_array = np.array(mask)
+
+    # Get coordinates of foreground pixels (non-zero)
+    y_indices, x_indices = np.where(mask_array > 0)
+
+    # Compute centroid
+    if len(x_indices) == 0 or len(y_indices) == 0:
+        raise ValueError("Mask is empty — no foreground pixels found.")
+
+    # Compute centroid
+    x_centroid = x_indices.mean()
+    y_centroid = y_indices.mean()
+    centroid = (x_centroid, y_centroid)
+    return centroid
+
+
+
+def pad_to_fit_patches_with_centroid(image, mask, centroid, patch_size=16, bg_color=(245, 245, 245, 255)):
+    """ Pad the image to patchifyable size, such the the centroid is in the middle of patch (0,0). Since there is no
+    center pixel in the patch (16, 16), the centroid is pixel (8,8) (right bottom of 4 center pixels).
+    
+    Parameters:
+        image (PIL.Image): The image to be padded.
+        mask (PIL.Image): The mask to be padded.
+        centroid (tuple): The (x, y) coordinates of the centroid.
+        patch_size (int): The size of the patches.
+        bg_color (tuple): The background color to use for padding.
     
     Returns:
-    padded_image (PIL.Image): The padded image.
-    padded_mask (PIL.Image): The padded mask. """
+        padded_image (PIL.Image): The padded image.
+        padded_mask (PIL.Image): The padded mask. """
 
+    # get image size
     w, h = image.size
 
-    # Compute target dimensions (next multiple of 16)
-    target_w = math.ceil(w / patch_size) * patch_size
-    target_h = math.ceil(h / patch_size) * patch_size
+    # Get the centroid coordinates
+    cx, cy = centroid
 
-    # Calculate padding
-    x_pad = target_w - w
-    y_pad = target_h - h
-    left = x_pad // 2
-    top = y_pad // 2
+    # Convert to pixel value
+    cx = math.floor(cx)
+    cy = math.floor(cy)
 
-    # Create new padded image
-    padded_image = Image.new("RGBA", (target_w, target_h), bg_color)
-    padded_image.paste(image, (left, top), image)
+    # Caclulate target image dimensions
+    number_extra_pixels_left = cx % patch_size
+    if number_extra_pixels_left < patch_size // 2:
+        add_left = patch_size // 2 - number_extra_pixels_left
+    else:
+        add_left = patch_size + patch_size // 2 - number_extra_pixels_left
 
-    # Create new padded mask
-    padded_mask = Image.new("L", (target_w, target_h), 0)  
-    padded_mask.paste(mask, (left, top), mask)
-    
+    number_extra_pixels_top = cy % patch_size
+    if number_extra_pixels_top < patch_size // 2:
+        add_top = patch_size // 2 - number_extra_pixels_top
+    else:
+        add_top = patch_size + patch_size // 2 - number_extra_pixels_top
+
+    number_extra_pixels_right = (w - cx) % patch_size
+    if number_extra_pixels_right < patch_size // 2:
+        add_right = patch_size // 2 - number_extra_pixels_right
+    else:
+        add_right = patch_size + patch_size // 2 - number_extra_pixels_right
+
+    number_extra_pixels_bottom = (h - cy) % patch_size
+    if number_extra_pixels_bottom < patch_size // 2:
+        add_bottom = patch_size // 2 - number_extra_pixels_bottom
+    else:
+        add_bottom = patch_size + patch_size // 2 - number_extra_pixels_bottom
+
+    # Create new padded image and mask
+    padded_image = ImageOps.expand(image, border=(add_left, add_top, add_right, add_bottom), fill=bg_color)
+    padded_mask = ImageOps.expand(mask, border=(add_left, add_top, add_right, add_bottom), fill=0)  
+
     return padded_image, padded_mask
 
 
@@ -91,18 +145,20 @@ def rotate_image_with_correct_padding(image, mask, angle):
     rotated_image = image.rotate(-angle, expand=True, fillcolor=(245, 245, 245, 255))
     rotated_mask = mask.rotate(-angle, expand=True, resample=Image.NEAREST, fillcolor=0)
 
-    # trim the image and mask to remove unnecessary padding
+    # Trim the image and mask to remove unnecessary padding
     cropped_image, cropped_mask = crop_to_mask(rotated_image, rotated_mask)
 
-    # Pad the image and mask to the next multiple of 16
-    padded_image, padded_mask = pad_to_complete_number_of_patches(cropped_image, cropped_mask)
+    # Get the centroid of the mask
+    centroid = get_centroid_of_mask(cropped_mask)
+
+    # # Pad the image and mask to next multiple of 16 with the centroid in the center of a patch
+    padded_image, padded_mask = pad_to_fit_patches_with_centroid(cropped_image, cropped_mask, centroid)
 
     # Convert to RGB (remove alpha) and save
     padded_image = padded_image.convert("RGB")
 
     return padded_image, padded_mask
 
-    
 
 if __name__ == "__main__":
 
