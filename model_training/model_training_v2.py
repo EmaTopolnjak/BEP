@@ -584,6 +584,12 @@ if __name__ == "__main__":
     ## TRYING TO LOAD THE SAVED MODEL
     model.load_state_dict(torch.load(TRAINED_MODEL_PATH))
 
-    # Model evaluation
-    test_labels, test_pred = apply_model_on_test_set(model, val_loader)
-    model_evaluation(test_labels, test_pred)
+    # # Model evaluation
+    # test_labels, test_pred = apply_model_on_test_set(model, val_loader)
+    # model_evaluation(test_labels, test_pred)`
+    
+    import torchinfo
+    torchinfo.summary(model)
+
+    original_model = timm.create_model(MODEL_NAME, pretrained=True)
+    torchinfo.summary(original_model)

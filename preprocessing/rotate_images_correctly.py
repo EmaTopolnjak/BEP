@@ -107,11 +107,11 @@ def rotate_image_with_correct_padding(image, mask, angle):
 if __name__ == "__main__":
 
     # Load the configuration
-    rotation_info_path = config.IHC_ground_truth_rotations
-    original_images_path = config.IHC_crops_masked
-    original_masks_path = config.IHC_masks
-    rotated_images_path = config.IHC_crops_masked_rotated
-    rotated_masks_path = config.IHC_masks_rotated
+    rotation_info_path = config.HE_ground_truth_rotations
+    original_images_path = config.HE_crops_masked
+    original_masks_path = config.HE_masks
+    rotated_images_path = config.HE_crops_masked_rotated
+    rotated_masks_path = config.HE_masks_rotated
 
     # Load the rotation info
     with open(rotation_info_path, 'r') as f:
