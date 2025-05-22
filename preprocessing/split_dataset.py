@@ -264,8 +264,10 @@ if __name__ == "__main__":
 
     # Load the configuration    
     patient_mapping_path = config.patient_mapping
-    files_HE = config.HE_crops_masked_rotated
-    files_IHC = config.IHC_crops_masked_rotated
+    images_HE = config.HE_crops_masked_padded
+    images_IHC = config.IHC_crops_masked_padded
+    masks_HE = config.HE_masks_padded
+    masks_IHC = config.IHC_masks_padded
     assigned_split_path = config.assigned_split
     
     # Load the patient to ID mapping
@@ -273,10 +275,13 @@ if __name__ == "__main__":
         patient_mapping = json.load(f)
 
     # Get all images
-    files_HE = Path(files_HE)
-    files_IHC = Path(files_IHC)
-    filepaths_HE = [f.name for f in files_HE.iterdir() if f.is_file()]
-    filepaths_IHC = [f.name for f in files_IHC.iterdir() if f.is_file()]
+    images_HE = Path(images_HE)
+    images_IHC = Path(images_IHC)
+    filepaths_HE = [f.name for f in images_HE.iterdir() if f.is_file()]
+    filepaths_IHC = [f.name for f in images_IHC.iterdir() if f.is_file()]
+
+    masks_HE = Path(masks_HE)
+    masks_IHC = Path(masks_IHC)
     
     # Get mapping of idnr to patient
     flat_id_to_patient = flatten_dict(patient_mapping)
@@ -297,5 +302,7 @@ if __name__ == "__main__":
         json.dump(assigned_split, f, indent=4)
 
     # Organize images into train, validation, and test folders
-    organize_images_by_split(files_HE, assigned_split, flat_id_to_patient)
-    organize_images_by_split(files_IHC, assigned_split, flat_id_to_patient)
+    organize_images_by_split(images_HE, assigned_split, flat_id_to_patient)
+    organize_images_by_split(images_IHC, assigned_split, flat_id_to_patient)
+    organize_images_by_split(masks_HE, assigned_split, flat_id_to_patient)
+    organize_images_by_split(masks_IHC, assigned_split, flat_id_to_patient)

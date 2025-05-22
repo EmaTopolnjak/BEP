@@ -1,3 +1,5 @@
+# NOTE: Old code, it imports the whole timm model instead of just the pretrained weights. 
+
 import config
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
