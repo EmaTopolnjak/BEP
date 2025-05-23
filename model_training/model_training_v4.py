@@ -10,6 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import math
 import random
+import json
 
 from ViT import ViT, convert_state_dict
 from rotate_images_correctly import rotate_image_with_correct_padding, get_centroid_of_mask
@@ -36,7 +37,7 @@ class ImageDataset(Dataset):
         get_pos(img, mask): Returns the position of each patch in the image. 
         augment_image(img, mask): Augments the image and mask by applying random transformations. """
 
-    def __init__(self, image_paths, mask_paths):
+    def __init__(self, image_paths, mask_paths, labels, perform_transforms=False):
         """ Custom dataset for loading images and labels.
         
         Parameters:
@@ -46,6 +47,8 @@ class ImageDataset(Dataset):
 
         self.image_paths = image_paths # List of image file paths
         self.mask_paths = mask_paths # List of mask file paths
+        self.labels = labels # List of labels (angles of rotation) corresponding to the image - this is only known for the validation set
+        self.perform_transform = perform_transforms # Transformations to be applied to the images
 
 
     def __len__(self):
@@ -68,9 +71,11 @@ class ImageDataset(Dataset):
         # Load image and mask
         img = Image.open(self.image_paths[idx]).convert("RGB")
         mask = Image.open(self.mask_paths[idx]).convert("L")
-
-        # Apply augmentations
-        img, mask, angle = self.augment_image(img, mask)
+        
+        if self.perform_transform: # Apply augmentations
+            img, mask, angle = self.augment_image(img, mask)
+        else:
+            angle = self.labels[idx]
 
         # Apply transformations (normalization, patchify) to image
         img = TF.to_tensor(img)  
@@ -269,7 +274,7 @@ def train_model(model, train_loader, val_loader, device, learning_rate, epochs, 
             if accumulation_count >= 1:
                 accumulation_count = 0 # reset counter
                 break
-
+            
             image = image.to(device)
             label = label.to(device).float().view(-1)  # ensure shape (B,)
             pos = pos.to(device)
@@ -302,9 +307,9 @@ def train_model(model, train_loader, val_loader, device, learning_rate, epochs, 
         with torch.no_grad():
             for step, (image, label, pos) in enumerate(val_loader):
                 # TEMPORARY ONLY 5 BATCHES FOR VALIDATION
-                if step >= 2:
+                if step >= 1:
                     break
-                
+
                 # Get the image, label and position
                 image = image.to(device)
                 label = label.to(device).float().view(-1)
@@ -335,8 +340,15 @@ def train_model(model, train_loader, val_loader, device, learning_rate, epochs, 
 if __name__ == "__main__":
     
     # Load the configurations
-    HE_images_for_model = config.HE_crops_masked_rotated
-    HE_masks_for_model = config.HE_masks_rotated
+    HE_ground_truth_rotations = config.HE_ground_truth_rotations
+
+    # For training, use the correctly rotated images so it is easier to rotate them for training
+    HE_images_for_training = config.HE_crops_masked_rotated 
+    HE_masks_for_training = config.HE_masks_rotated
+
+    # For validation, use the images that are not rotated but have original rotation
+    HE_images_for_validation = config.HE_crops_masked_padded
+    HE_masks_for_validation = config.HE_masks_padded
     
     PRETRAINED_MODEL = config.pretrained_model
     TRAINED_MODEL_PATH = config.trained_model_path
@@ -354,26 +366,31 @@ if __name__ == "__main__":
     np.random.seed(RANDOM_SEED)
 
     # Load the images
-    HE_images_train = HE_images_for_model + '/train'
+    HE_images_train = HE_images_for_training + '/train'
     image_paths_train = [os.path.join(HE_images_train, fname) for fname in os.listdir(HE_images_train) if fname.lower().endswith(('.jpg', '.jpeg', '.png'))]
-    HE_masks_train = HE_masks_for_model + '/train'
+    HE_masks_train = HE_masks_for_training + '/train'
     mask_paths_train = [os.path.join(HE_masks_train, fname) for fname in os.listdir(HE_masks_train) if fname.lower().endswith(('.jpg', '.jpeg', '.png'))]
-
-    HE_images_val = HE_images_for_model + '/val'
+    
+    HE_images_val = HE_images_for_validation + '/val'
     image_paths_val = [os.path.join(HE_images_val, fname) for fname in os.listdir(HE_images_val) if fname.lower().endswith(('.jpg', '.jpeg', '.png'))]
-    HE_masks_val = HE_masks_for_model + '/val'
+    HE_masks_val = HE_masks_for_validation + '/val'
     mask_paths_val = [os.path.join(HE_masks_val, fname) for fname in os.listdir(HE_masks_val) if fname.lower().endswith(('.jpg', '.jpeg', '.png'))]
 
+    # Load the labels
+    with open(HE_ground_truth_rotations, 'r') as f:
+        label_dict = json.load(f)
+    labels_val = [label_dict[os.path.basename(path)] for path in image_paths_val]
+
     # Create the dataset and dataloader
-    train_data = ImageDataset(image_paths=image_paths_train, mask_paths=mask_paths_train)
+    train_data = ImageDataset(image_paths=image_paths_train, mask_paths=mask_paths_train, labels=None, perform_transforms=True)
     train_loader = DataLoader(train_data, batch_size=1, shuffle=True) 
-    val_data = ImageDataset(image_paths=image_paths_val, mask_paths=mask_paths_val)
+    val_data = ImageDataset(image_paths=image_paths_val, mask_paths=mask_paths_val, labels=labels_val, perform_transforms=False)
     val_loader = DataLoader(val_data, batch_size=1, shuffle=False) 
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Initialize the model
-    model = initialize_model(pretrained_weights_path=PRETRAINED_MODEL)
+    model = initialize_model(pretrained_weights_path=PRETRAINED_MODEL).to(device)
     
     # Model training
     optimized_model = train_model(model, train_loader, val_loader, device, LEARNING_RATE, epochs=NUM_EPOCHS, accumulation_steps=ACCUMULATIONS_STEPS, save_training_plot_path=TRAINING_PLOT_PATH, trained_model_path=TRAINED_MODEL_PATH)
