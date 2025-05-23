@@ -1,18 +1,18 @@
 # NOTE: ...
 
-import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from PIL import Image
+from PIL import Image, ImageOps
 import os
 import torch
-import torch.nn.functional as F
+import torchvision.transforms as T
 import torchvision.transforms.functional as TF
 import numpy as np
-import json
 import matplotlib.pyplot as plt
 import math
-from ViT import ViT, convert_state_dict
+import random
 
+from ViT import ViT, convert_state_dict
+from rotate_images_correctly import rotate_image_with_correct_padding, get_centroid_of_mask
 
 import sys
 from pathlib import Path
@@ -20,32 +20,6 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 import config
 
-
-
-def get_centroid_of_mask(mask):
-    """ Get the centroid of the mask.
-
-    Parameters:
-    mask (PIL.Image): The mask to find the centroid of.
-
-    Returns:
-    centroid (tuple): The (x, y) coordinates of the centroid. """
-
-    # Convert to numpy array
-    mask_array = np.array(mask)
-
-    # Get coordinates of foreground pixels (non-zero)
-    y_indices, x_indices = np.where(mask_array > 0)
-
-    # Compute centroid
-    if len(x_indices) == 0 or len(y_indices) == 0:
-        raise ValueError("Mask is empty — no foreground pixels found.")
-
-    # Compute centroid
-    x_centroid = x_indices.mean()
-    y_centroid = y_indices.mean()
-    centroid = (x_centroid, y_centroid)
-    return centroid
 
 
 class ImageDataset(Dataset):
@@ -59,9 +33,10 @@ class ImageDataset(Dataset):
     Methods:
         __len__(): Returns the number of images in the dataset.
         __getitem__(idx): Returns the image, label and position matrix of the patches for a given index (image in the dataset).
-        get_pos(img, mask): Returns the position of each patch in the image. """
+        get_pos(img, mask): Returns the position of each patch in the image. 
+        augment_image(img, mask): Augments the image and mask by applying random transformations. """
 
-    def __init__(self, image_paths, mask_paths, labels):
+    def __init__(self, image_paths, mask_paths):
         """ Custom dataset for loading images and labels.
         
         Parameters:
@@ -71,7 +46,6 @@ class ImageDataset(Dataset):
 
         self.image_paths = image_paths # List of image file paths
         self.mask_paths = mask_paths # List of mask file paths
-        self.labels = labels # List of labels corresponding to the images
 
 
     def __len__(self):
@@ -81,10 +55,8 @@ class ImageDataset(Dataset):
 
     def __getitem__(self, idx):
         """ Returns the image, label and position matrix of the patches for a given index (image in the dataset).
-        1. Load the image and label.
-        2. Apply transformations (normalization, patchify).
-        3. Get the position of each patch in the image.
-        4. Return the image, label and position matrix.
+        The image is augmented and transformed to a tensor. The position matrix is calculated based on the centroid of the mask.
+        The image is normalized and the mask is converted to a tensor. The angle of rotation is also returned.
 
         Parameters:
             idx (int): Index of the image and label to retrieve.
@@ -93,22 +65,24 @@ class ImageDataset(Dataset):
             label (torch.Tensor): Label tensor.
             pos (torch.Tensor): Position matrix of the patches. """
 
-        # Load image and label, and apply transformations (normalization, patchify)
+        # Load image and mask
         img = Image.open(self.image_paths[idx]).convert("RGB")
-        img = TF.to_tensor(img)  # Convert to tensor and normalize
-        label = self.labels[idx]
-
-        # Load mask to calculate position matrix
         mask = Image.open(self.mask_paths[idx]).convert("L")
 
-        # get the position of each patch in the image
+        # Apply augmentations
+        img, mask, angle = self.augment_image(img, mask)
+
+        # Apply transformations (normalization, patchify) to image
+        img = TF.to_tensor(img)  
+
+        # Get the position of each patch in the image
         pos = self.get_pos(img, mask)      
 
-        return img, label, pos
+        return img, angle, pos
     
 
     def get_pos(self, img, mask, patch_size=16):
-        """ Returns the position of each patch in the image cen
+        """ Returns the position of each patch in the image. The position is calculated based on the centroid of the mask.
 
         Parameters:
             img (torch.Tensor): Image for position matrix needs to be calculated.
@@ -141,6 +115,37 @@ class ImageDataset(Dataset):
         return pos
     
 
+    def augment_image(self, img, mask):
+        """ Augment the image and mask by addjusting brightness, contrast, saturation and hue. Also the image is flipped vertically with
+        a probability of 30%. The image and mask are rotated by a random angle between 0 and 360 degrees. 
+        
+        Parameters:
+            img (PIL.Image): Image to be augmented.
+            mask (PIL.Image): Mask to be augmented.
+        
+        Returns:
+            img (PIL.Image): Augmented image.
+            mask (PIL.Image): Augmented mask.
+            angle (float): Angle of rotation applied to the image and mask. """
+        
+        # Adjust brightness, contrast, saturation and hue
+        transform = T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05)
+        img = transform(img) # Apply color jitter to image
+
+        # Randomly flip the image and mask vertically
+        flip_image_vertically = random.choices([True, False], weights=[0.3, 0.7])[0] # Probability of setting Boolean to True is 30%
+        
+        if flip_image_vertically: # Flip vertically
+            img = ImageOps.mirror(img) 
+            mask = ImageOps.mirror(mask) 
+
+        # Apply random rotation 
+        angle = np.random.random() * 360 # Random rotation angle between 0 and 360 degrees
+        img, mask = rotate_image_with_correct_padding(img, mask, -float(angle)) # Rotate image and mask with correct padding
+        
+        return img, mask, angle
+
+    
 
 def initialize_model(pretrained_weights_path):
     """ Initialize the model with pretrained weights.
@@ -178,6 +183,7 @@ def initialize_model(pretrained_weights_path):
     return model
 
 
+
 def circular_mse_loss(pred_deg, target_deg):
     """ Circular Mean Squared Error Loss for angles in degrees.
     
@@ -209,12 +215,12 @@ def training_plot(train_losses, val_losses, save_path):
     
     plt.figure(figsize=(10, 5))
     plt.plot(range(1, len(train_losses)+1), train_losses, label='Train Loss')
-    # plt.plot(range(1, len(val_losses)+1), val_losses, label='Validation Loss')
+    plt.plot(range(1, len(val_losses)+1), val_losses, label='Validation Loss')
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
     plt.title('Training and Validation Loss')
     plt.legend()
-    # plt.ylim(0, max(max(train_losses), max(val_losses))*1.01)
+    plt.ylim(0, max(max(train_losses), max(val_losses))*1.01)
     plt.savefig(save_path)
     plt.show()
 
@@ -329,7 +335,6 @@ def train_model(model, train_loader, val_loader, device, learning_rate, epochs, 
 if __name__ == "__main__":
     
     # Load the configurations
-    HE_ground_truth_rotations = config.HE_ground_truth_rotations
     HE_images_for_model = config.HE_crops_masked_rotated
     HE_masks_for_model = config.HE_masks_rotated
     
@@ -344,6 +349,7 @@ if __name__ == "__main__":
     DROPOUT_PROB = config.dropout_prob
 
     # Set the random seed for reproducibility
+    random.seed(RANDOM_SEED)
     torch.manual_seed(RANDOM_SEED)
     np.random.seed(RANDOM_SEED)
 
@@ -358,16 +364,10 @@ if __name__ == "__main__":
     HE_masks_val = HE_masks_for_model + '/val'
     mask_paths_val = [os.path.join(HE_masks_val, fname) for fname in os.listdir(HE_masks_val) if fname.lower().endswith(('.jpg', '.jpeg', '.png'))]
 
-    # Load the labels
-    with open(HE_ground_truth_rotations, 'r') as f:
-        label_dict = json.load(f)
-    labels_train = [label_dict[os.path.basename(path)] for path in image_paths_train]
-    labels_val = [label_dict[os.path.basename(path)] for path in image_paths_val]
-
     # Create the dataset and dataloader
-    train_data = ImageDataset(image_paths=image_paths_train, mask_paths=mask_paths_train, labels=labels_train)
-    train_loader = DataLoader(train_data, batch_size=1, shuffle=False) 
-    val_data = ImageDataset(image_paths=image_paths_val, mask_paths=mask_paths_val, labels=labels_val)
+    train_data = ImageDataset(image_paths=image_paths_train, mask_paths=mask_paths_train)
+    train_loader = DataLoader(train_data, batch_size=1, shuffle=True) 
+    val_data = ImageDataset(image_paths=image_paths_val, mask_paths=mask_paths_val)
     val_loader = DataLoader(val_data, batch_size=1, shuffle=False) 
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
