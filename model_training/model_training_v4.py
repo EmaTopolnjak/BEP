@@ -1,3 +1,5 @@
+# NOTE: ...
+
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image
@@ -328,8 +330,8 @@ if __name__ == "__main__":
     
     # Load the configurations
     HE_ground_truth_rotations = config.HE_ground_truth_rotations
-    HE_images_for_model = config.HE_crops_masked_padded
-    HE_masks_for_model = config.HE_masks_padded
+    HE_images_for_model = config.HE_crops_masked_rotated
+    HE_masks_for_model = config.HE_masks_rotated
     
     PRETRAINED_MODEL = config.pretrained_model
     TRAINED_MODEL_PATH = config.trained_model_path
