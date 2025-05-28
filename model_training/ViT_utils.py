@@ -51,10 +51,10 @@ class PosEmbedder(nn.Module):
         # initialize instance attributes
         self.embed_dim = embed_dim
         self.pos_embed = nn.Parameter(
-            data=torch.zeros((self.max_position_index+1, self.embed_dim//2)),
+            data=torch.zeros((self.max_position_index*2+1, self.embed_dim//2)),
             requires_grad=False,
         )
-        X = torch.arange(self.max_position_index+1, dtype=torch.float32).reshape(-1, 1)
+        X = torch.arange(-self.max_position_index, self.max_position_index+1, dtype=torch.float32).reshape(-1, 1)
         X = X / torch.pow(10000, torch.arange(0, self.embed_dim//2, 2, dtype=torch.float32) / (self.embed_dim//2))
 
         self.pos_embed[:, 0::2] = torch.sin(X)
@@ -92,8 +92,8 @@ class PosEmbedder(nn.Module):
             device = 'cpu'
 
         # define embeddings for x and y dimension
-        embeddings = [self.pos_embed[pos[:, :, 0], :],
-                      self.pos_embed[pos[:, :, 1], :]]
+        embeddings = [self.pos_embed[pos[:, :, 0]+self.max_position_index, :],
+                      self.pos_embed[pos[:, :, 1]+self.max_position_index, :]]
         # add a row of zeros as padding in case the embedding dimension has an odd length
         if self.embed_dim % 2 == 1:
             embeddings.append(torch.zeros((B, S, 1), device=device))

@@ -36,16 +36,18 @@ def apply_model_on_test_set(model, test_loader):
     with torch.no_grad():
         for image, label, pos in test_loader:
             # TEMPORARY ONLY 5 BATCHES
-            if counter >= 5: 
+            if counter >= 20: 
                 break
             counter += 1
+
+            print(counter , end='\r')
 
             image = image.to(device)
             label = label.to(device).float().view(-1)
 
             output = model(image, pos).view(-1)
             all_labels.append(label.cpu().numpy())
-            all_preds.append(output.cpu().numpy())
+            all_preds.append(output.cpu().numpy()*360) 
 
     all_labels = np.concatenate(all_labels)
     all_preds = np.concatenate(all_preds)
@@ -94,12 +96,12 @@ def model_evaluation(true_labels, all_preds):
     plt.show()
 
     # Plote the histogram of angluar differencesd
-    plt.figure()
-    plt.hist(wrapped_diff, bins=50, edgecolor='black')
-    plt.xlabel("Angular Error (degrees)")
-    plt.ylabel("Frequency")
-    plt.title("Distribution of Angular Errors")
-    plt.show()
+    # plt.figure()
+    # plt.hist(wrapped_diff, bins=50, edgecolor='black')
+    # plt.xlabel("Angular Error (degrees)")
+    # plt.ylabel("Frequency")
+    # plt.title("Distribution of Angular Errors")
+    # plt.show()
     
 
 
