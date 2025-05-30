@@ -65,8 +65,8 @@ def extract_datasets(img_path, filter_large_images):
     to not let the model run out of memory. The maximum number of pixels is set to 2.700.000, which is the maximum size of the image after rotation.
 
     Parameters:
-        img_path_ (str): Path to the folder containing the images. The folder should contain subfolders 'train', 'val' and 'test'.
-        masks_path (str): Path to the folder containing the masks. The folder should contain subfolders 'train', 'val' and 'test'.
+        img_path (str): Path to the folder containing the images. The folder should contain subfolders 'train', 'val' and 'test'.
+        filter_large_images (function): Function to filter images based on size. It should take a list of image paths and return a list of filtered image paths and the number of suppressed images.
 
     Returns:
         image_paths_train (list): List of filenames for the training set.
@@ -111,10 +111,13 @@ class ImageDataset(Dataset):
         """ Custom dataset for loading images and labels.
         
         Parameters:
-            image_path
-            labels (list): List of labels corresponding to the images.
-            perform_transforms (bool): Whether to apply augmentations to the images. Default is False. """
-
+            image_path (str): Path to the folder containing the images.
+            mask_path (str): Path to the folder containing the masks.
+            subset (str): Subset of the dataset ('train', 'val', 'test').
+            filenames (list): List of filenames for the images in the subset.
+            labels (list): List of labels corresponding to the images in the subset.
+            perform_transforms (bool): Whether to apply augmentations to the images. Default is False."""
+            
         self.image_path = os.path.join(image_path, subset)
         self.mask_path = os.path.join(mask_path, subset)
         self.filenames = filenames 
@@ -136,7 +139,7 @@ class ImageDataset(Dataset):
             idx (int): Index of the image and label to retrieve.
         Returns:
             img (torch.Tensor): Image tensor.
-            label (torch.Tensor): Label tensor.
+            angle_vector (torch.Tensor): Angle vector representing the rotation of the image in radians.
             pos (torch.Tensor): Position matrix of the patches. """
 
         # Load image and mask
@@ -156,7 +159,7 @@ class ImageDataset(Dataset):
         angle_rad = angle_deg * math.pi / 180.0
         angle_vector = torch.tensor([math.cos(angle_rad), math.sin(angle_rad)], dtype=torch.float32)
 
-        # Apply transformations (normalization, patchify) to image
+        # Apply transformations normalization to image
         img = torchvision.transforms.functional.to_tensor(img)  
 
         # Get the position of each patch in the image
@@ -435,15 +438,15 @@ if __name__ == "__main__":
     torch.manual_seed(RANDOM_SEED)
     np.random.seed(RANDOM_SEED)
 
-    # Load the images and masks for training, validation and test sets and filter them by size 
+    # Load the images and masks for training and validation sets and filter them by size 
     filenames_train, filenames_val = extract_datasets(
         HE_images_path,
         lambda img_p: filter_by_rotated_size_threshold(img_p)
     )
 
     # TEMPORARY: Limit the number of training and validation images
-    # filenames_train = filenames_train[:10]
-    # filenames_val = filenames_val[:10]
+    filenames_train = filenames_train[:10]
+    filenames_val = filenames_val[:10]
 
     # Load the labels
     with open(HE_ground_truth_rotations, 'r') as f:
