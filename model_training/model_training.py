@@ -1,30 +1,29 @@
-# NOTE: Images that are too large for the model to handle are filtered out before training. The labels are scaled to [0,1] to make it easier for the model to learn. Code does not work because it 
-# works on the old position embedding implementation.
+# NOTE: ...
 
-from torch.utils.data import Dataset, DataLoader
-from PIL import Image, ImageOps
-import os
-import torch
-import torchvision.transforms as T
-import torchvision.transforms.functional as TF
-import numpy as np
-import matplotlib.pyplot as plt
-import math
-import random
 import json
-
-from ViT_old import ViT, convert_state_dict
-from rotate_images_correctly import rotate_image_with_correct_padding, get_centroid_of_mask
-
+import math
+import os
+import random
 import sys
 from pathlib import Path
-# Add parent directory to sys.path
+import matplotlib.pyplot as plt
+import numpy as np
+from PIL import Image, ImageOps
+import torch
+from torch.utils.data import DataLoader, Dataset
+import torchvision
+
+# Local imports
+from ViT import ViT, convert_state_dict
+from rotate_images_correctly import rotate_image_with_correct_padding, get_centroid_of_mask
+
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 import config
 
 
 
-def filter_by_rotated_size_threshold(image_paths, mask_paths, max_pixels=2700000):
+
+def filter_by_rotated_size_threshold(image_paths, max_pixels=500000): # On GPU, max. is 2,700,000
     """ Filter images and masks based on the estimated size after rotation. The maximum number of pixels is set to 
     2.700.000. The estimated size is calculated based on the maximum size of the image after rotation, which is when the image is 
     rotated by 45 degrees. If the estimated size is less than or equal to the maximum number of pixels, the image and mask are kept. 
@@ -40,10 +39,9 @@ def filter_by_rotated_size_threshold(image_paths, mask_paths, max_pixels=2700000
         suppressed_count (int): Number of images and masks that were suppressed due to exceeding the maximum pixel threshold. """
     
     filtered_images = []
-    filtered_masks = []
     suppressed_count = 0
 
-    for img_path, mask_path in zip(image_paths, mask_paths):
+    for img_path in image_paths:
         try:
             with Image.open(img_path) as img:
                 w, h = img.size
@@ -51,7 +49,6 @@ def filter_by_rotated_size_threshold(image_paths, mask_paths, max_pixels=2700000
                 est_pixels = new_size**2
                 if est_pixels <= max_pixels:
                     filtered_images.append(img_path)
-                    filtered_masks.append(mask_path)
                 else:
                     suppressed_count += 1
 
@@ -59,66 +56,39 @@ def filter_by_rotated_size_threshold(image_paths, mask_paths, max_pixels=2700000
             print(f"Skipping {img_path} due to error: {e}")
             suppressed_count += 1
 
-    return filtered_images, filtered_masks, suppressed_count
+    return filtered_images, suppressed_count
 
 
 
-def get_image_mask_paths_from_filenames(image_folder, mask_folder):
-    """ Get the image and mask paths from the filenames in the given directories. The images and masks are sorted by filename.
-    
-    Parameters:
-        image_folder (str): Folder containing the images.
-        mask_folder (str): Folder containing the masks.
-        
-    Returns:
-        image_paths (list): List of image file paths.
-        mask_paths (list): List of mask file paths. """
-    
-    filenames = sorted([
-        fname for fname in os.listdir(image_folder) if fname.lower().endswith(('.jpg', '.jpeg', '.png'))])
-    filenames.sort()
-
-    image_paths = [os.path.join(image_folder, fname) for fname in filenames]
-    mask_paths  = [os.path.join(mask_folder, fname)  for fname in filenames]
-    return image_paths, mask_paths
-
-
-
-def extract_datasets(img_path_train, masks_path_train, img_path_val_test, masks_path_val_test, filter_large_images):
+def extract_datasets(img_path, filter_large_images):
     """ Extract the datasets for training, validation and test sets. The images and masks are filtered by size to ensure that they are small enough
     to not let the model run out of memory. The maximum number of pixels is set to 2.700.000, which is the maximum size of the image after rotation.
 
     Parameters:
-        img_path_train (str): Path to the training images.
-        masks_path_train (str): Path to the training masks.
-        img_path_val_test (str): Path to the validation and test images.
-        masks_path_val_test (str): Path to the validation and test masks.
-        filter_large_images (function): Function to filter images and masks by size.
+        img_path_ (str): Path to the folder containing the images. The folder should contain subfolders 'train', 'val' and 'test'.
+        masks_path (str): Path to the folder containing the masks. The folder should contain subfolders 'train', 'val' and 'test'.
 
     Returns:
-        image_paths_train (list): List of image paths for the training set.
-        mask_paths_train (list): List of mask paths for the training set.
-        image_paths_val (list): List of image paths for the validation set.
-        mask_paths_val (list): List of mask paths for the validation set.
-        image_paths_test (list): List of image paths for the test set.
-        mask_paths_test (list): List of mask paths for the test set. """
-
-    subsets = {
-        "train": (os.path.join(img_path_train, 'train'), os.path.join(masks_path_train, 'train')),
-        "val":   (os.path.join(img_path_val_test, 'val'), os.path.join(masks_path_val_test, 'val')),
-        "test":  (os.path.join(img_path_val_test, 'test'), os.path.join(masks_path_val_test, 'test'))
-    }
+        image_paths_train (list): List of filenames for the training set.
+        image_paths_val (list): List of filenames for the validation set. """
 
     results = {}
-    for subset, (img_dir, mask_dir) in subsets.items():
-        image_paths, mask_paths = get_image_mask_paths_from_filenames(img_dir, mask_dir)
-        image_paths, mask_paths, suppressed = filter_large_images(image_paths, mask_paths)
-        results[subset] = (image_paths, mask_paths, suppressed)
+
+    for subset in ['train', 'val']:
+        img_dir  = os.path.join(img_path, subset)
+        filenames = sorted([fname for fname in os.listdir(img_dir) if fname.lower().endswith(('.jpg', '.jpeg', '.png'))])
+
+        # Build full paths to apply filtering
+        image_paths = [os.path.join(img_dir, fname) for fname in filenames]
+
+        # Filter images based on size
+        image_paths_filtered, suppressed = filter_large_images(image_paths)
+        filtered_filenames = [os.path.basename(p) for p in image_paths_filtered]
+
+        results[subset] = filtered_filenames
         print(f"Number of {subset} images suppressed: {suppressed}")
 
-    return results['train'][0], results['train'][1], \
-           results['val'][0], results['val'][1], \
-           results['test'][0], results['test'][1]
+    return results['train'], results['val']
 
 
 
@@ -137,19 +107,19 @@ class ImageDataset(Dataset):
         get_pos(img, mask): Returns the position of each patch in the image. 
         augment_image(img, mask): Augments the image and mask by applying random transformations. """
 
-    def __init__(self, image_paths, mask_paths, labels, perform_transforms=False):
+    def __init__(self, image_path, mask_path, subset, filenames, labels, perform_transforms=False):
         """ Custom dataset for loading images and labels.
         
         Parameters:
-            image_paths (list): List of image file paths.
-            mask_paths (list): List of mask file paths.
+            image_path
             labels (list): List of labels corresponding to the images.
             perform_transforms (bool): Whether to apply augmentations to the images. Default is False. """
 
-        self.image_paths = image_paths # List of image file paths
-        self.mask_paths = mask_paths # List of mask file paths
-        self.labels = labels # List of labels (angles of rotation) corresponding to the image - this is only known for the validation set
-        self.perform_transform = perform_transforms # Transformations to be applied to the images
+        self.image_path = os.path.join(image_path, subset)
+        self.mask_path = os.path.join(mask_path, subset)
+        self.filenames = filenames 
+        self.labels = labels 
+        self.perform_transform = perform_transforms 
 
 
     def __len__(self):
@@ -170,26 +140,32 @@ class ImageDataset(Dataset):
             pos (torch.Tensor): Position matrix of the patches. """
 
         # Load image and mask
-        img = Image.open(self.image_paths[idx]).convert("RGB")
-        mask = Image.open(self.mask_paths[idx]).convert("L")
-        
-        if self.perform_transform: # Apply augmentations
-            img, mask, angle = self.augment_image(img, mask)
-        else:
-            angle = self.labels[idx]
+        fname = self.filenames[idx]
+        img_path = os.path.join(self.image_path, fname)
+        mask_path = os.path.join(self.mask_path, fname)
 
-        angle = angle / 360  # Normalize angle to [0, 1] 
+        img = Image.open(img_path).convert("RGB")
+        mask = Image.open(mask_path).convert("L")
+
+        if self.perform_transform: # Apply augmentations
+            img, mask, angle_deg = self.augment_image(img, mask, idx)
+        else:
+            angle_deg = self.labels[idx]
+
+        # Convert angle in degrees to vector
+        angle_rad = angle_deg * math.pi / 180.0
+        angle_vector = torch.tensor([math.cos(angle_rad), math.sin(angle_rad)], dtype=torch.float32)
 
         # Apply transformations (normalization, patchify) to image
-        img = TF.to_tensor(img)  
+        img = torchvision.transforms.functional.TF.to_tensor(img)  
 
         # Get the position of each patch in the image
         pos = self.get_pos(img, mask)      
 
-        return img, angle, pos
+        return img, angle_vector, pos
     
 
-    def augment_image(self, img, mask):
+    def augment_image(self, img, mask, idx):
         """ Augment the image and mask by addjusting brightness, contrast, saturation and hue. Also the image is flipped vertically with
         a probability of 30%. The image and mask are rotated by a random angle between 0 and 360 degrees. 
         
@@ -203,20 +179,23 @@ class ImageDataset(Dataset):
             angle (float): Angle of rotation applied to the image and mask. """
         
         # Adjust brightness, contrast, saturation and hue
-        transform = T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05)
+        transform = torchvision.transforms.T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05)
         img = transform(img) # Apply color jitter to image
 
+        angle = self.labels[idx] # Get the angle from the labels 
+
         # Randomly flip the image and mask vertically
-        flip_image_vertically = random.choices([True, False], weights=[0.3, 0.7])[0] # Probability of setting Boolean to True is 30%
-        
+        flip_image_vertically = random.choice([True, False]) # Probability of setting Boolean to True is 50%
         if flip_image_vertically: # Flip vertically
             img = ImageOps.mirror(img) 
-            mask = ImageOps.mirror(mask) 
+            mask = ImageOps.mirror(mask)
+            angle = 360 - angle # Adjust angle accordingly 
 
         # Apply random rotation 
-        angle = np.random.random() * 360 # Random rotation angle between 0 and 360 degrees
-        img, mask = rotate_image_with_correct_padding(img, mask, -float(angle)) # Rotate image and mask with correct padding
-        
+        added_angle = random.random()*360-180 
+        img, mask = rotate_image_with_correct_padding(img, mask, -float(added_angle))
+        angle = (angle + added_angle) % 360
+
         return img, mask, angle
     
     
@@ -283,30 +262,12 @@ def initialize_model(pretrained_weights_path):
     # Convert the state dict to match the model
     converted_state_dict = convert_state_dict(state_dict=state_dict)
     converted_state_dict['pos_embedder.pos_embed'] = model.state_dict()['pos_embedder.pos_embed']
-    converted_state_dict['classifier.weight'] = model.state_dict()['classifier.weight']
-    converted_state_dict['classifier.bias'] = model.state_dict()['classifier.bias']
+    converted_state_dict.pop('classifier.weight', None)
+    converted_state_dict.pop('classifier.bias', None)
 
-    model.load_state_dict(converted_state_dict)
+    model.load_state_dict(converted_state_dict, strict=False)
 
     return model
-
-
-
-def circular_mse_loss(pred_deg, target_deg):
-    """ Circular Mean Squared Error Loss for angles in degrees.
-    
-    Parameters:
-        pred_deg (torch.Tensor): Predicted angles in degrees.
-        target_deg (torch.Tensor): Target angles in degrees.
-    
-    Returns:
-        torch.Tensor: Circular Mean Squared Error Loss. """
-    
-    diff = pred_deg - target_deg  # Compute raw difference 
-    wrapped_diff = torch.remainder(diff + 0.5, 1) - 0.5 # Wrap difference to [-0.5, 0.5] (because angles are normalized to [0, 1])
-    circular_mse = torch.mean(wrapped_diff ** 2) # Calculate mean squared error
-    
-    return circular_mse
 
 
 
@@ -354,7 +315,7 @@ def append_losses_to_file(filename, epoch, train_loss, val_loss):
 
 
 
-def train_model(model, train_loader, val_loader, device, learning_rate, epochs, accumulation_steps, save_training_plot_path, trained_model_path):
+def train_model(model, train_loader, val_loader, device, learning_rate, epochs, accumulation_steps, save_training_plot_path, trained_model_path, training_log_path="training_log.txt"):
     """ Train the model on the training set and validate on the validation set. The loss is calculated using circular mean squared error.
     The model is trained using gradient accumulation to reduce memory usage. The training and validation loss are plotted and saved. The 
     trained model is saved to a file.
@@ -369,6 +330,7 @@ def train_model(model, train_loader, val_loader, device, learning_rate, epochs, 
         accumulation_steps (int): Number of steps to accumulate gradients before updating weights.
         save_training_plot_path (str): Path to save the training plot.
         trained_model_path (str): Path to save the trained model.
+        training_log_path (str): Path to save the training log file. Default is "training_log.txt".
 
     Returns:
         model (nn.Module): Trained model.
@@ -377,6 +339,8 @@ def train_model(model, train_loader, val_loader, device, learning_rate, epochs, 
 
     model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=3, factor=0.5)
+    loss_fn = torch.nn.MSELoss() 
     train_losses = []
     val_losses = []
 
@@ -392,36 +356,28 @@ def train_model(model, train_loader, val_loader, device, learning_rate, epochs, 
         
         # ---- Training ----
         for step, (image, label, pos) in enumerate(train_loader):
-
-            # TEMPORARY ONLY 2 UPDATING WEIGHT STEPS FOR ONE EPOCH
-            # if accumulation_count >= 20:
-            #     accumulation_count = 0 # reset counter
-            #     break
-            
+            # Get the image, label and position matrix
             image = image.to(device)
             label = label.to(device).float().view(-1)  # ensure shape (B,)
             pos = pos.to(device)
 
-            # Forward pass
+            # Forward pass, compute loss and backpropagate
             output = model(image, pos).view(-1)  # shape output: (B, 1) -> (B,)
-
-            # Compute loss, scale it and backpropagate
-            loss = circular_mse_loss(output, label) / accumulation_steps
+            loss = loss_fn(output, label) / accumulation_steps
             loss.backward()
-
-            # Log the loss for the current batch
-            running_loss += loss.item() * accumulation_steps  # undo scaled loss for logging
-            print(f"Image {step+1}/{accumulation_steps*2} | Loss: {running_loss:.4f}", end="\r")
-
+            
             # Update weights every accumulation_steps
             if (step + 1) % accumulation_steps == 0:
-                print('Updating weights...')
+                # print('Updating weights...')
                 optimizer.step()
                 optimizer.zero_grad()
                 accumulation_count += 1
 
+        # Log the loss for the current batch
+        running_loss += loss.item() * accumulation_steps  # Undo scaled loss for logging
         avg_train_loss = running_loss / step # Scale the loss for the number of images that were used 
-
+        train_losses.append(avg_train_loss)
+        
         # ---- Validation ----
         print("Validation step")
         model.eval()
@@ -429,34 +385,27 @@ def train_model(model, train_loader, val_loader, device, learning_rate, epochs, 
 
         with torch.no_grad():
             for step, (image, label, pos) in enumerate(val_loader):
-                # # TEMPORARY ONLY 5 BATCHES FOR VALIDATION
-                # if step >= 1:
-                #     break
-
-                # Get the image, label and position
+                # Get the image, label and position matrix
                 image = image.to(device)
                 label = label.to(device).float().view(-1)
                 pos = pos.to(device)
 
-                # Forward pass
+                # Forward pass and compute loss
                 output = model(image, pos).view(-1)
-                loss = circular_mse_loss(output, label)
+                loss = loss_fn(output, label)
                 val_loss += loss.item()
 
         avg_val_loss = val_loss / step # Scale the loss for the number of images that were used
-
-        print(f"Epoch {epoch+1}/{epochs} | Train Loss: {avg_train_loss:.4f} | Val Loss (5 batches): {avg_val_loss:.4f}")
-
-        train_losses.append(avg_train_loss)
         val_losses.append(avg_val_loss)
-    
-        append_losses_to_file("training_log.txt", epoch+1, avg_train_loss, avg_val_loss)
+        scheduler.step(avg_val_loss)  # Update learning rate
 
+        print(f"Epoch {epoch+1}/{epochs} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
+        append_losses_to_file(training_log_path, epoch+1, avg_train_loss, avg_val_loss)
+
+    # Save the model and plot the losses
+    torch.save(model.state_dict(), trained_model_path)
     training_plot(train_losses, val_losses, save_training_plot_path)
     print("Training complete.")
-
-    # Save the model
-    torch.save(model.state_dict(), trained_model_path)
 
     return model
 
@@ -464,20 +413,11 @@ def train_model(model, train_loader, val_loader, device, learning_rate, epochs, 
 
 if __name__ == "__main__":
     
-    # Load the configurations
-    HE_ground_truth_rotations = config.HE_ground_truth_rotations
-
-    # For training, use the correctly rotated images so it is easier to rotate them for training
-    HE_images_for_training = config.HE_crops_masked_rotated 
-    HE_masks_for_training = config.HE_masks_rotated
-
-    # For validation, use the images that are not rotated but have original rotation
-    HE_images_for_val_test = config.HE_crops_masked_padded
-    HE_masks_for_val_test = config.HE_masks_padded
-    
+    # Load configuration
     PRETRAINED_MODEL = config.pretrained_model
     TRAINED_MODEL_PATH = config.trained_model_path
     TRAINING_PLOT_PATH = config.training_plot_path
+    TRAINING_LOG_PATH = config.training_log_path
     BATCH_SIZE = config.batch_size 
     NUM_EPOCHS = config.num_epochs
     LEARNING_RATE = config.learning_rate
@@ -485,29 +425,36 @@ if __name__ == "__main__":
     RANDOM_SEED = config.random_seed
     DROPOUT_PROB = config.dropout_prob
 
+    # Load the images, masks and corresponding rotations
+    HE_ground_truth_rotations = config.HE_ground_truth_rotations
+    HE_images_path = config.HE_crops_masked_padded 
+    HE_masks_path = config.HE_crops_masked_padded
+
     # Set the random seed for reproducibility
     random.seed(RANDOM_SEED)
     torch.manual_seed(RANDOM_SEED)
     np.random.seed(RANDOM_SEED)
 
     # Load the images and masks for training, validation and test sets and filter them by size 
-    image_paths_train, mask_paths_train, image_paths_val, mask_paths_val, image_paths_test, mask_paths_test = extract_datasets(
-        HE_images_for_training,
-        HE_masks_for_training,
-        HE_images_for_val_test,
-        HE_masks_for_val_test,
+    filenames_train, filenames_val = extract_datasets(
+        HE_images_path,
         lambda img_p, mask_p: filter_by_rotated_size_threshold(img_p, mask_p)
     )
+
+    # TEMPORARY: Limit the number of training and validation images
+    filenames_train = filenames_train[:10]
+    filenames_val = filenames_val[:10]
 
     # Load the labels
     with open(HE_ground_truth_rotations, 'r') as f:
         label_dict = json.load(f)
-    labels_val = [label_dict[os.path.basename(path)] for path in image_paths_val]
-
+    labels_train = [label_dict[fname] for fname in filenames_train]
+    labels_val = [label_dict[fname] for fname in filenames_val]
+    
     # Create the dataset and dataloader
-    train_data = ImageDataset(image_paths=image_paths_train, mask_paths=mask_paths_train, labels=None, perform_transforms=True)
-    train_loader = DataLoader(train_data, batch_size=1, shuffle=True) 
-    val_data = ImageDataset(image_paths=image_paths_val, mask_paths=mask_paths_val, labels=labels_val, perform_transforms=False)
+    train_data = ImageDataset(image_path=HE_images_path, mask_path=HE_masks_path, subset='train', filenames=filenames_train, labels=labels_train, perform_transforms=True)
+    train_loader = DataLoader(train_data, batch_size=1, shuffle=False) # TEMPORARY: dont shuffle
+    val_data = ImageDataset(image_path=HE_images_path, mask_path=HE_masks_path, subset='val', filenames=filenames_val, labels=labels_val, perform_transforms=False)
     val_loader = DataLoader(val_data, batch_size=1, shuffle=False) 
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -517,5 +464,4 @@ if __name__ == "__main__":
     model = model.to(device)
     
     # Model training
-    optimized_model = train_model(model, train_loader, val_loader, device, learning_rate=LEARNING_RATE, epochs=NUM_EPOCHS, accumulation_steps=ACCUMULATIONS_STEPS, save_training_plot_path=TRAINING_PLOT_PATH, trained_model_path=TRAINED_MODEL_PATH)
-
+    optimized_model = train_model(model, train_loader, val_loader, device, learning_rate=LEARNING_RATE, epochs=NUM_EPOCHS, accumulation_steps=ACCUMULATIONS_STEPS, save_training_plot_path=TRAINING_PLOT_PATH, trained_model_path=TRAINED_MODEL_PATH, training_log_path=TRAINING_LOG_PATH)

@@ -304,7 +304,11 @@ class ViT(nn.Module):
         elif self.n_classes < 1:
             self.classifier = nn.Identity()
         else:
-            self.classifier = nn.Linear(self.embed_dim, self.n_classes)
+            self.classifier = nn.Sequential(
+                nn.Linear(embed_dim, embed_dim // 2),
+                nn.ReLU(),
+                nn.Linear(embed_dim // 2, 2) 
+            ) # NOTE: head is linear - sigmoid to predcict angle in sin cos space
 
         # initialize parameter values
         trunc_normal_(self.cls_token, std=0.02)
