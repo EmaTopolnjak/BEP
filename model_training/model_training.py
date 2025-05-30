@@ -124,7 +124,7 @@ class ImageDataset(Dataset):
 
     def __len__(self):
         """ Returns the number of images in the dataset."""
-        return len(self.image_paths) # Needed for PyTorch Dataset
+        return len(self.filenames)
 
 
     def __getitem__(self, idx):
@@ -157,7 +157,7 @@ class ImageDataset(Dataset):
         angle_vector = torch.tensor([math.cos(angle_rad), math.sin(angle_rad)], dtype=torch.float32)
 
         # Apply transformations (normalization, patchify) to image
-        img = torchvision.transforms.functional.TF.to_tensor(img)  
+        img = torchvision.transforms.functional.to_tensor(img)  
 
         # Get the position of each patch in the image
         pos = self.get_pos(img, mask)      
@@ -179,7 +179,7 @@ class ImageDataset(Dataset):
             angle (float): Angle of rotation applied to the image and mask. """
         
         # Adjust brightness, contrast, saturation and hue
-        transform = torchvision.transforms.T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05)
+        transform = torchvision.transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05)
         img = transform(img) # Apply color jitter to image
 
         angle = self.labels[idx] # Get the angle from the labels 
@@ -428,7 +428,7 @@ if __name__ == "__main__":
     # Load the images, masks and corresponding rotations
     HE_ground_truth_rotations = config.HE_ground_truth_rotations
     HE_images_path = config.HE_crops_masked_padded 
-    HE_masks_path = config.HE_crops_masked_padded
+    HE_masks_path = config.HE_masks_padded
 
     # Set the random seed for reproducibility
     random.seed(RANDOM_SEED)
@@ -438,12 +438,12 @@ if __name__ == "__main__":
     # Load the images and masks for training, validation and test sets and filter them by size 
     filenames_train, filenames_val = extract_datasets(
         HE_images_path,
-        lambda img_p, mask_p: filter_by_rotated_size_threshold(img_p, mask_p)
+        lambda img_p: filter_by_rotated_size_threshold(img_p)
     )
 
     # TEMPORARY: Limit the number of training and validation images
-    filenames_train = filenames_train[:10]
-    filenames_val = filenames_val[:10]
+    # filenames_train = filenames_train[:10]
+    # filenames_val = filenames_val[:10]
 
     # Load the labels
     with open(HE_ground_truth_rotations, 'r') as f:
