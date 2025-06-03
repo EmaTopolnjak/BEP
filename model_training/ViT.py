@@ -24,8 +24,11 @@ from typing import Callable, Optional, Union
 
 import torch
 import torch.nn as nn
+import sys 
+import os
 
-from ViT_utils import (
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from model_training.ViT_utils import (
     MultiHeadAttentionFactory, 
     PosEmbedder,
     trunc_normal_,
@@ -307,8 +310,10 @@ class ViT(nn.Module):
             self.classifier = nn.Sequential(
                 nn.Linear(embed_dim, embed_dim // 2),
                 nn.ReLU(),
+                nn.LayerNorm(embed_dim // 2),
+                nn.Dropout(dropout_prob),
                 nn.Linear(embed_dim // 2, 2) 
-            ) # NOTE: head is linear - sigmoid to predcict angle in sin cos space
+            ) # TEMPORARY: testing which head works best
 
         # initialize parameter values
         trunc_normal_(self.cls_token, std=0.02)

@@ -1,25 +1,26 @@
 # NOTE: ...
 
-import json
-import math
-import os
 import random
+import os
 import sys
+import math
+import json
 from pathlib import Path
-import matplotlib.pyplot as plt
 import numpy as np
-from PIL import Image, ImageOps
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, ConcatDataset
 import torchvision
+import matplotlib.pyplot as plt
+from PIL import Image, ImageOps
 
-# Local imports
-from ViT import ViT, convert_state_dict
-from rotate_images_correctly import rotate_image_with_correct_padding, get_centroid_of_mask
+# Codes from other codes
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from model_training.ViT import ViT, convert_state_dict
+from preprocessing.rotate_images_correctly import rotate_image_with_correct_padding, get_centroid_of_mask
 
+# To import the config file from the parent directory
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 import config
-
 
 
 
@@ -89,6 +90,27 @@ def extract_datasets(img_path, filter_large_images):
         print(f"Number of {subset} images suppressed: {suppressed}")
 
     return results['train'], results['val']
+
+
+
+def get_filenames_and_labels(images_path, ground_truth_rotations):
+    # Load the images and masks for training and validation sets and filter them by size 
+    filenames_train, filenames_val = extract_datasets(
+        images_path,
+        lambda img_p: filter_by_rotated_size_threshold(img_p)
+    )
+
+    # TEMPORARY: Limit the number images
+    filenames_train = filenames_train[:10]
+    filenames_val = filenames_val[:10]
+
+    # Load the labels
+    with open(ground_truth_rotations, 'r') as f:
+        label_dict = json.load(f)
+    labels_train = [label_dict[fname] for fname in filenames_train]
+    labels_val = [label_dict[fname] for fname in filenames_val]
+    
+    return filenames_train, filenames_val, labels_train, labels_val
 
 
 
@@ -189,7 +211,7 @@ class ImageDataset(Dataset):
 
         # Randomly flip the image and mask vertically
         flip_image_vertically = random.choice([True, False]) # Probability of setting Boolean to True is 50%
-        if flip_image_vertically: # Flip vertically
+        if flip_image_vertically: 
             img = ImageOps.mirror(img) 
             mask = ImageOps.mirror(mask)
             angle = 360 - angle # Adjust angle accordingly 
@@ -417,6 +439,7 @@ def train_model(model, train_loader, val_loader, device, learning_rate, epochs, 
 if __name__ == "__main__":
     
     # Load configuration
+    STAIN = config.stain1  # 'HE', 'IHC' or 'HE+IHC'
     PRETRAINED_MODEL = config.pretrained_model
     TRAINED_MODEL_PATH = config.trained_model_path
     TRAINING_PLOT_PATH = config.training_plot_path
@@ -428,36 +451,54 @@ if __name__ == "__main__":
     RANDOM_SEED = config.random_seed
     DROPOUT_PROB = config.dropout_prob
 
-    # Load the images, masks and corresponding rotations
-    HE_ground_truth_rotations = config.HE_ground_truth_rotations
-    HE_images_path = config.HE_crops_masked_padded 
-    HE_masks_path = config.HE_masks_padded
-
     # Set the random seed for reproducibility
     random.seed(RANDOM_SEED)
     torch.manual_seed(RANDOM_SEED)
     np.random.seed(RANDOM_SEED)
 
-    # Load the images and masks for training and validation sets and filter them by size 
-    filenames_train, filenames_val = extract_datasets(
-        HE_images_path,
-        lambda img_p: filter_by_rotated_size_threshold(img_p)
-    )
+    # Load the images, masks and corresponding rotations
+    if STAIN == 'HE':
+        ground_truth_rotations = config.HE_ground_truth_rotations
+        images_path = config.HE_crops_masked_padded 
+        masks_path = config.HE_masks_padded
 
-    # TEMPORARY: Limit the number of training and validation images
-    filenames_train = filenames_train[:10]
-    filenames_val = filenames_val[:10]
+        filenames_train, filenames_val, labels_train, labels_val = get_filenames_and_labels(images_path, ground_truth_rotations)
+        train_data = ImageDataset(image_path=images_path, mask_path=masks_path, subset='train', filenames=filenames_train, labels=labels_train, perform_transforms=True)
+        val_data = ImageDataset(image_path=images_path, mask_path=masks_path, subset='val', filenames=filenames_val, labels=labels_val, perform_transforms=False)
 
-    # Load the labels
-    with open(HE_ground_truth_rotations, 'r') as f:
-        label_dict = json.load(f)
-    labels_train = [label_dict[fname] for fname in filenames_train]
-    labels_val = [label_dict[fname] for fname in filenames_val]
-    
-    # Create the dataset and dataloader
-    train_data = ImageDataset(image_path=HE_images_path, mask_path=HE_masks_path, subset='train', filenames=filenames_train, labels=labels_train, perform_transforms=True)
-    train_loader = DataLoader(train_data, batch_size=1, shuffle=False) # TEMPORARY: dont shuffle
-    val_data = ImageDataset(image_path=HE_images_path, mask_path=HE_masks_path, subset='val', filenames=filenames_val, labels=labels_val, perform_transforms=False)
+    elif STAIN == 'IHC':
+        ground_truth_rotations = config.IHC_ground_truth_rotations
+        images_path = config.IHC_crops_masked_padded 
+        masks_path = config.IHC_masks_padded
+
+        filenames_train, filenames_val, labels_train, labels_val = get_filenames_and_labels(images_path, ground_truth_rotations)
+        train_data = ImageDataset(image_path=images_path, mask_path=masks_path, subset='train', filenames=filenames_train, labels=labels_train, perform_transforms=True)
+        val_data = ImageDataset(image_path=images_path, mask_path=masks_path, subset='val', filenames=filenames_val, labels=labels_val, perform_transforms=False)
+
+    elif STAIN == 'HE+IHC':
+        ground_truth_rotations_HE = config.HE_ground_truth_rotations
+        images_path_HE = config.HE_crops_masked_padded 
+        masks_path_HE = config.HE_masks_padded
+        filenames_train_HE, filenames_val_HE, labels_train_HE, labels_val_HE = get_filenames_and_labels(images_path_HE, ground_truth_rotations_HE)
+        train_data_HE = ImageDataset(image_path=images_path_HE, mask_path=masks_path_HE, subset='train', filenames=filenames_train_HE, labels=labels_train_HE, perform_transforms=True)
+        val_data_HE = ImageDataset(image_path=images_path_HE, mask_path=masks_path_HE, subset='val', filenames=filenames_val_HE, labels=labels_val_HE, perform_transforms=False)
+
+        ground_truth_rotations_IHC = config.IHC_ground_truth_rotations
+        images_path_IHC = config.IHC_crops_masked_padded 
+        masks_path_IHC = config.IHC_masks_padded
+        filenames_train_IHC, filenames_val_IHC, labels_train_IHC, labels_val_IHC = get_filenames_and_labels(images_path_IHC, ground_truth_rotations_IHC)
+        train_data_IHC = ImageDataset(image_path=images_path_IHC, mask_path=masks_path_IHC, subset='train', filenames=filenames_train_IHC, labels=labels_train_IHC, perform_transforms=True)
+        val_data_IHC = ImageDataset(image_path=images_path_IHC, mask_path=masks_path_IHC, subset='val', filenames=filenames_val_IHC, labels=labels_val_IHC, perform_transforms=False)
+
+        # Combine
+        train_data = ConcatDataset([train_data_HE, train_data_IHC])
+        val_data = ConcatDataset([val_data_HE, val_data_IHC])
+
+    else:
+        raise ValueError("Invalid stain type. Choose 'HE', 'IHC' or 'HE+IHC'.")  
+
+    # Create dataloader
+    train_loader = DataLoader(train_data, batch_size=1, shuffle=True) 
     val_loader = DataLoader(val_data, batch_size=1, shuffle=False) 
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

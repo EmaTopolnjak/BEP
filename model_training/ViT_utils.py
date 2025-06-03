@@ -29,7 +29,7 @@ import matplotlib.pyplot as plt
 
 class PosEmbedder(nn.Module):
 
-    max_position_index = 100
+    max_position_index = 200
     repeat_section_embedding = True
 
     def __init__(

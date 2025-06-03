@@ -126,7 +126,7 @@ def pad_to_fit_patches_with_centroid(image, mask, centroid, patch_size=16, bg_co
 
 
 
-def rotate_image_with_correct_padding(image, mask, angle):
+def rotate_image_with_correct_padding(image, mask, angle, bg_color=(245, 245, 245, 255)):
     """ Rotate the image by the given angle and return the rotated image. The background 
     color is set to (245, 245, 245). The image is centered on a square canvas.
 
@@ -142,7 +142,11 @@ def rotate_image_with_correct_padding(image, mask, angle):
     if image.mode != "RGBA":
         image = image.convert("RGBA")
     
-    rotated_image = image.rotate(-angle, expand=True, fillcolor=(245, 245, 245, 255))
+    # Remove background if not already remved
+    background = Image.new("RGBA", image.size, bg_color)
+    image = Image.composite(image, background, mask)
+    
+    rotated_image = image.rotate(-angle, expand=True, fillcolor=bg_color)
     rotated_mask = mask.rotate(-angle, expand=True, resample=Image.NEAREST, fillcolor=0)
 
     # Trim the image and mask to remove unnecessary padding
@@ -151,8 +155,8 @@ def rotate_image_with_correct_padding(image, mask, angle):
     # Get the centroid of the mask
     centroid = get_centroid_of_mask(cropped_mask)
 
-    # # Pad the image and mask to next multiple of 16 with the centroid in the center of a patch
-    padded_image, padded_mask = pad_to_fit_patches_with_centroid(cropped_image, cropped_mask, centroid)
+    # Pad the image and mask to next multiple of 16 with the centroid in the center of a patch
+    padded_image, padded_mask = pad_to_fit_patches_with_centroid(cropped_image, cropped_mask, centroid, bg_color=bg_color)
 
     # Convert to RGB (remove alpha) and save
     padded_image = padded_image.convert("RGB")
