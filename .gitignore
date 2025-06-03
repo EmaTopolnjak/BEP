@@ -5,3 +5,4 @@
 /__pycache__/
 /preprocessing/__pycache__/
 /model_training/__pycache__/
+/evaluation/__pycache__/

@@ -1,4 +1,4 @@
-# NOTE: ...
+# NOTE: Not yet checked how code should be adjusted for the HE+IHC case.
 
 import os
 import sys
@@ -14,7 +14,7 @@ from PIL import Image
 
 # Codes from other folders
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from model_training.model_training import ImageDataset, initialize_model, filter_by_rotated_size_threshold
+from model_training.model_training_loop import ImageDataset, initialize_model, filter_by_rotated_size_threshold
 from preprocessing.rotate_images_correctly import rotate_image_with_correct_padding, get_centroid_of_mask
 
 # To import the config file from the parent directory
@@ -75,7 +75,7 @@ def get_filenames_and_labels(images_path, ground_truth_rotations):
 
 
 
-def apply_model_on_test_set(model, test_loader):
+def apply_model_on_test_set(model, test_loader, device):
     """ Apply the trained model on the test set and return the predictions and labels.
 
     Parameters:
@@ -183,7 +183,7 @@ def visualize_predictions_vs_labels(true_labels, preds, evaluation_plots_path):
     plt.ylabel("Prediction (°)")
     plt.title("Prediction vs Ground Truth")
     plt.grid(True)
-    path = evaluation_plots_path + 'predictions_vs_labels.png'
+    path = evaluation_plots_path + 'predictions_vs_labels.pdf'
     plt.savefig(path)
     # plt.show()
 
@@ -194,29 +194,28 @@ def visualize_predictions_vs_labels(true_labels, preds, evaluation_plots_path):
     plt.ylabel("Count")
     plt.title("Error Distribution")
     plt.grid(True)
-    path = evaluation_plots_path + 'histogram_angluar_differences.png'
+    path = evaluation_plots_path + 'histogram_angluar_differences.pdf'
     plt.savefig(path)
     # plt.show()
 
-    # Bland-Altman plot
-    mean_values = (preds + true_labels) / 2
-    mean_diff = np.mean(angluar_diff)
-    std_diff = np.std(angluar_diff)
-    upper_limit = mean_diff + 1.96 * std_diff
-    lower_limit = mean_diff - 1.96 * std_diff
+    # Error bias plot
+    mean_error = np.mean(angluar_diff)
+    std_error = np.std(angluar_diff)
+    upper_limit = mean_error + 1.96 * std_error
+    lower_limit = mean_error - 1.96 * std_error
 
     plt.figure()
-    plt.scatter(mean_values, angluar_diff, alpha=0.5, s=10)
-    plt.axhline(mean_diff, color='gray', linestyle='--', label=f"Mean diff: {mean_diff:.2f}")
-    plt.axhline(upper_limit, color='red', linestyle='--', label=f"+1.96 SD: {upper_limit:.2f}")
-    plt.axhline(lower_limit, color='red', linestyle='--', label=f"-1.96 SD: {lower_limit:.2f}")
-    plt.xlabel("Mean of Prediction and Ground Truth")
-    plt.ylabel("Prediction - Ground Truth")
-    plt.title('title: Bland-Altman Plot')
+    plt.scatter(true_labels, angluar_diff, alpha=0.5, s=10)
+    plt.axhline(mean_error, color='blue', linestyle='--', label=f"Mean: {mean_error:.2f}°")
+    plt.axhline(upper_limit, color='red', linestyle='--', label=f"+1.96 SD: {upper_limit:.2f}°")
+    plt.axhline(lower_limit, color='red', linestyle='--', label=f"-1.96 SD: {lower_limit:.2f}°")
+    plt.xlabel("Ground Truth")
+    plt.ylabel("Angular Difference (°)")
+    plt.title('Erros vs Ground Truth')
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
-    path = evaluation_plots_path + 'bland_altman_plot_of_erros.png'
+    path = evaluation_plots_path + 'error_bias_plot.pdf'
     plt.savefig(path)
     # plt.show()
 
@@ -300,7 +299,7 @@ def plot_predictions_based_on_percentile(image_path, mask_path, filenames, true_
 
     plt.tight_layout()
     plt.subplots_adjust(left=0.05, top=0.95) # Adjust margin for text labels
-    path = evaluation_plots_path + 'qualitative_analysis_errors.png'
+    path = evaluation_plots_path + 'qualitative_analysis_errors.pdf'
     fig.savefig(path)
     # plt.show()
 
@@ -363,156 +362,12 @@ def plot_top10_worst_predictions(image_path, mask_path, filenames, true_labels, 
 
     # plt.tight_layout()
     plt.subplots_adjust(left=0.04, top=0.91)
-    path = evaluation_plots_path + 'worst_predictions.png'
+    path = evaluation_plots_path + 'worst_predictions.pdf'
     fig.savefig(path)
     # plt.show()
 
 
 
-class ImageDataset_all_rotations(Dataset):
-    """ A class to create a custom dataset for loading images and labels.
-    
-    Attributes:
-        image_path (str): Path to the folder containing the images.
-        mask_path (str): Path to the folder containing the masks.
-        filenames (list): List of filenames for the images in the subset.
-        labels (list): List of labels corresponding to the images in the subset.
-        
-    Methods:
-        __len__(): Returns the number of images in the dataset.
-        __getitem__(idx): Returns the image, label and position matrix of the patches for a given index (image in the dataset).
-        get_pos(img, mask): Returns the position of each patch in the image. 
-        augment_image(img, mask): Augments the image and mask by applying random transformations. """
-
-    def __init__(self, image_path, mask_path, filenames, labels, angle_step=5):
-        """ Custom dataset for loading images and labels.
-        
-        Parameters:
-            image_path (str): Path to the folder containing the images.
-            mask_path (str): Path to the folder containing the masks.
-            filenames (list): List of filenames for the images in the subset.
-            labels (list): List of labels corresponding to the images in the subset. """
-
-        self.image_path = os.path.join(image_path, 'val')
-        self.mask_path = os.path.join(mask_path, 'val')
-        self.filenames = filenames 
-        self.labels = labels 
-        self.angle_step = angle_step
-
-        # Create list of (image_idx, rotation_angle)
-        self.index_map = []
-        for i in range(len(self.filenames)):
-            for angle in range(0, 360, angle_step):
-                self.index_map.append((i, angle))
-
-  
-
-    def __len__(self):
-        """ Returns the number of images in the dataset. """
-        return len(self.index_map) 
-
-
-    def __getitem__(self, idx):
-        """ Returns the images, labels and position matrices for each possible rotation of the image. 
-
-        Parameters:
-            idx (int): Index of the image and label to retrieve.
-        Returns:
-            img_rotated (torch.Tensor): Rotated image tensor.
-            angle_vector (torch.Tensor): Angle vector in degrees. 
-            pos (torch.Tensor): Position matrix of the patches in the image. """
-
-        image_idx, angle = self.index_map[idx]
-
-        # Load image and mask
-        fname = self.filenames[image_idx]
-        img_path = os.path.join(self.image_path, fname)
-        mask_path = os.path.join(self.mask_path, fname)
-
-        img = Image.open(img_path).convert("RGB")
-        mask = Image.open(mask_path).convert("L")
-        true_angle = self.labels[image_idx]
-
-        # Rotate the image and mask to the true rotation
-        correctly_rotated_img, correctly_rotated_mask = rotate_image_with_correct_padding(img, mask, float(true_angle))
-
-        # rotate the image and mask to the specified angle
-        img_rotated, mask_rotated = rotate_image_with_correct_padding(correctly_rotated_img, correctly_rotated_mask, -float(angle))
-        
-        # Convert angle in degrees to vector
-        angle_rad = angle * math.pi / 180.0
-        angle_vector = torch.tensor([math.cos(angle_rad), math.sin(angle_rad)], dtype=torch.float32)
-        
-        # Apply transformations normalization to image
-        img_rotated = torchvision.transforms.functional.to_tensor(img_rotated)  
-        
-        pos = self.get_pos(img_rotated, mask_rotated)     
-
-        return img_rotated, angle_vector, pos
-    
-    
-    def get_pos(self, img, mask, patch_size=16):
-        """ Returns the position of each patch in the image. The position is calculated based on the centroid of the mask.
-
-        Parameters:
-            img (torch.Tensor): Image for position matrix needs to be calculated.
-            mask (PIL.Image): Mask for the image.
-            patch_size (int): Size of the patches. Default is 16.
-        
-        Returns:
-            pos (torch.Tensor): Position matrix of the patches. """
-        
-        # Calculate centroid and convert to pixel value
-        centroid = get_centroid_of_mask(mask) # Get the centroid of the mask
-        cx = math.floor(centroid[0])
-        cy = math.floor(centroid[1])
-
-        # Get the size of the image and number of patches
-        C, H, W = img.shape 
-        h_patches = H // patch_size
-        w_patches = W // patch_size
-
-        # Convert pixel centroid to patch coords
-        centroid_patch_x = int(cx // patch_size)
-        centroid_patch_y = int(cy // patch_size)
-
-        x_range = torch.arange(w_patches) - centroid_patch_x
-        y_range = -(torch.arange(h_patches) - centroid_patch_y)
-
-        y_grid, x_grid = torch.meshgrid(y_range, x_range, indexing='ij')
-        pos = torch.stack([y_grid, x_grid], dim=2).reshape(-1,2)  # Stack into (H, W, 2) adn then flatten to (H*W, 2)
-
-        return pos
-
-
-
-def plot_prediction_distribution_heatmap(angles, predictions, evaluation_plots_path, bins=72):
-    """ Plot a heatmap of the distribution of predictions based on rotation angles.
-    
-    Parameters:
-        angles (np.ndarray): Array of rotation angles in degrees.
-        predictions (np.ndarray): Array of predicted values.
-        evaluation_plots_path (str): Path to the folder where the evaluation plots will be saved.
-        bins (int): Number of bins for the histogram. Default is 72.
-    
-    Returns:
-        None. Plots are saved to the evaluation_plots_path. """
-
-    plt.figure(figsize=(12, 5))
-    plt.hist2d(
-        x=angles,
-        y=predictions,
-        bins=[bins, bins],
-        cmap="viridis"
-    )
-    plt.xlabel("Rotation angle (°)")
-    plt.ylabel("Predicted value")
-    plt.title("Prediction Distribution by Rotation Angle")
-    plt.colorbar(label="Frequency")
-    plt.tight_layout()
-    title = evaluation_plots_path + 'prediction_distribution_heatmap.png'
-    plt.savefig(title)
-    # plt.show()
 
 
 if __name__ == "__main__":
@@ -572,7 +427,7 @@ if __name__ == "__main__":
     model.to(device)
 
     # Apply the model on the test set
-    test_labels, test_pred = apply_model_on_test_set(model, test_loader)
+    test_labels, test_pred = apply_model_on_test_set(model, test_loader, device)
 
     # Calculate error metrics
     get_error_metrics(test_labels, test_pred)
@@ -580,14 +435,7 @@ if __name__ == "__main__":
     # Visualize predictions vs labels
     visualize_predictions_vs_labels(test_labels, test_pred, EVALUATION_PLOTS_PATH)
 
-    # Visualize errors with images: TODO: DIT WERKT NOG NIET OP DE GECOMBINEERDE DATASET
+    # Visualize errors with images
     plot_predictions_based_on_percentile(images_path, masks_path, filenames_test, test_labels, test_pred, EVALUATION_PLOTS_PATH)
     plot_top10_worst_predictions(images_path, masks_path, filenames_test, test_labels, test_pred, EVALUATION_PLOTS_PATH)
-
-    # # Evaluate rotation sensitivity
-    # test_data = ImageDataset_all_rotations(image_path=HE_images_path, mask_path=HE_masks_path, filenames=filenames_test, labels=labels_test)
-    # test_loader = DataLoader(test_data, batch_size=1, shuffle=False) 
-    # true_labels, preds = evaluate_rotation_sensitivity(model, test_loader)
-    # plot_prediction_distribution_heatmap(true_labels, preds, evaluation_plots_path, bins=72)
-
 

@@ -15,7 +15,7 @@ from PIL import Image, ImageOps
 
 # Codes from other codes
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from model_training.ViT import ViT, convert_state_dict
+from model_training.ViT_model import ViT, convert_state_dict
 from preprocessing.rotate_images_correctly import rotate_image_with_correct_padding, get_centroid_of_mask
 
 # To import the config file from the parent directory
@@ -439,9 +439,9 @@ def train_model(model, train_loader, val_loader, device, learning_rate, epochs, 
 if __name__ == "__main__":
     
     # Load configuration
-    STAIN = config.stain1  # 'HE', 'IHC' or 'HE+IHC'
+    STAIN = config.stain3  # 'HE', 'IHC' or 'HE+IHC'
     PRETRAINED_MODEL = config.pretrained_model
-    TRAINED_MODEL_PATH = config.trained_model_path
+    TRAINED_MODEL_PATH = config.trained_model_path3
     TRAINING_PLOT_PATH = config.training_plot_path
     TRAINING_LOG_PATH = config.training_log_path
     BATCH_SIZE = config.batch_size 
