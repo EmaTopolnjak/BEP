@@ -1,4 +1,4 @@
-# NOTE: Not yet checked how code should be adjusted for the HE+IHC case.
+# NOTE: ...
 
 import os
 import sys

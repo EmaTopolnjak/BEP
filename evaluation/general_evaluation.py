@@ -1,4 +1,4 @@
-# NOTE: Not yet checked how code should be adjusted for the HE+IHC case.
+# NOTE: ...
 
 import os
 import sys
@@ -7,15 +7,14 @@ import json
 from pathlib import Path
 import numpy as np
 import torch
-from torch.utils.data import Dataset, DataLoader, ConcatDataset
-import torchvision
+from torch.utils.data import DataLoader, ConcatDataset
 import matplotlib.pyplot as plt
 from PIL import Image
 
 # Codes from other folders
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from model_training.model_training_loop import ImageDataset, initialize_model, filter_by_rotated_size_threshold
-from preprocessing.rotate_images_correctly import rotate_image_with_correct_padding, get_centroid_of_mask
+from preprocessing.rotate_images_correctly import rotate_image_with_correct_padding
 
 # To import the config file from the parent directory
 sys.path.append(str(Path(__file__).resolve().parent.parent))
@@ -211,7 +210,7 @@ def visualize_predictions_vs_labels(true_labels, preds, evaluation_plots_path):
     plt.axhline(lower_limit, color='red', linestyle='--', label=f"-1.96 SD: {lower_limit:.2f}°")
     plt.xlabel("Ground Truth")
     plt.ylabel("Angular Difference (°)")
-    plt.title('Erros vs Ground Truth')
+    plt.title('Errors vs Ground Truth')
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
@@ -435,7 +434,7 @@ if __name__ == "__main__":
     # Visualize predictions vs labels
     visualize_predictions_vs_labels(test_labels, test_pred, EVALUATION_PLOTS_PATH)
 
-    # Visualize errors with images
+    # Visualize errors with images: TODO: DOES NOT WORK FOR HE+IHC CASE
     plot_predictions_based_on_percentile(images_path, masks_path, filenames_test, test_labels, test_pred, EVALUATION_PLOTS_PATH)
     plot_top10_worst_predictions(images_path, masks_path, filenames_test, test_labels, test_pred, EVALUATION_PLOTS_PATH)
 

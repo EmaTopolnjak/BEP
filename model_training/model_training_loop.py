@@ -24,14 +24,14 @@ import config
 
 
 
-def filter_by_rotated_size_threshold(image_paths, max_pixels=500000): # On GPU, max. is 2,700,000
+def filter_by_rotated_size_threshold(image_paths, set, max_pixels=1900000): # On GPU, max. is 2,700,000
     """ Filter images and masks based on the estimated size after rotation. The maximum number of pixels is set to 
     2.700.000. The estimated size is calculated based on the maximum size of the image after rotation, which is when the image is 
     rotated by 45 degrees. If the estimated size is less than or equal to the maximum number of pixels, the image and mask are kept. 
     
     Parameters:
         image_paths (list): List of image file paths.
-        mask_paths (list): List of mask file paths.
+        set (int): Set of the dataset ('train', 'val' or 'test').
         max_pixels (int): Maximum number of pixels allowed after rotation. Default is 2700000.
         
     Returns:
@@ -46,8 +46,11 @@ def filter_by_rotated_size_threshold(image_paths, max_pixels=500000): # On GPU, 
         try:
             with Image.open(img_path) as img:
                 w, h = img.size
-                new_size = int(math.ceil( (w  + h)*0.5*math.sqrt(2) )) # Max size of the image after rotation is when image is rotated by 45 degrees
-                est_pixels = new_size**2
+                if set == 'train':
+                    new_size = int(math.ceil( (w  + h)*0.5*math.sqrt(2) )) # Max size of the image after rotation is when image is rotated by 45 degrees
+                    est_pixels = new_size**2
+                else:
+                    est_pixels = w * h  # For validation and test sets, use original size because they are not rotated
                 if est_pixels <= max_pixels:
                     filtered_images.append(img_path)
                 else:
@@ -83,7 +86,7 @@ def extract_datasets(img_path, filter_large_images):
         image_paths = [os.path.join(img_dir, fname) for fname in filenames]
 
         # Filter images based on size
-        image_paths_filtered, suppressed = filter_large_images(image_paths)
+        image_paths_filtered, suppressed = filter_large_images(image_paths, subset)
         filtered_filenames = [os.path.basename(p) for p in image_paths_filtered]
 
         results[subset] = filtered_filenames
@@ -95,10 +98,7 @@ def extract_datasets(img_path, filter_large_images):
 
 def get_filenames_and_labels(images_path, ground_truth_rotations):
     # Load the images and masks for training and validation sets and filter them by size 
-    filenames_train, filenames_val = extract_datasets(
-        images_path,
-        lambda img_p: filter_by_rotated_size_threshold(img_p)
-    )
+    filenames_train, filenames_val = extract_datasets(images_path,filter_by_rotated_size_threshold)
 
     # TEMPORARY: Limit the number images
     filenames_train = filenames_train[:10]
@@ -422,9 +422,8 @@ def train_model(model, train_loader, val_loader, device, learning_rate, epochs, 
 
         avg_val_loss = val_loss / step # Scale the loss for the number of images that were used
         val_losses.append(avg_val_loss)
+        print(f"Epoch {epoch+1}/{epochs} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | Learning Rate: {scheduler.optimizer.param_groups[0]['lr']:.2e}")
         scheduler.step(avg_val_loss)  # Update learning rate
-
-        print(f"Epoch {epoch+1}/{epochs} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
         append_losses_to_file(training_log_path, epoch+1, avg_train_loss, avg_val_loss)
 
     # Save the model and plot the losses
@@ -497,15 +496,15 @@ if __name__ == "__main__":
     else:
         raise ValueError("Invalid stain type. Choose 'HE', 'IHC' or 'HE+IHC'.")  
 
-    # Create dataloader
-    train_loader = DataLoader(train_data, batch_size=1, shuffle=True) 
-    val_loader = DataLoader(val_data, batch_size=1, shuffle=False) 
+    # # Create dataloader
+    # train_loader = DataLoader(train_data, batch_size=1, shuffle=True) 
+    # val_loader = DataLoader(val_data, batch_size=1, shuffle=False) 
     
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Initialize the model
-    model = initialize_model(pretrained_weights_path=PRETRAINED_MODEL)
-    model = model.to(device)
+    # # Initialize the model
+    # model = initialize_model(pretrained_weights_path=PRETRAINED_MODEL)
+    # model = model.to(device)
     
-    # Model training
-    optimized_model = train_model(model, train_loader, val_loader, device, learning_rate=LEARNING_RATE, epochs=NUM_EPOCHS, accumulation_steps=ACCUMULATIONS_STEPS, save_training_plot_path=TRAINING_PLOT_PATH, trained_model_path=TRAINED_MODEL_PATH, training_log_path=TRAINING_LOG_PATH)
+    # # Model training
+    # optimized_model = train_model(model, train_loader, val_loader, device, learning_rate=LEARNING_RATE, epochs=NUM_EPOCHS, accumulation_steps=ACCUMULATIONS_STEPS, save_training_plot_path=TRAINING_PLOT_PATH, trained_model_path=TRAINED_MODEL_PATH, training_log_path=TRAINING_LOG_PATH)

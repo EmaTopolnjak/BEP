@@ -1,9 +1,8 @@
-# NOTE: Not yet checked how code should be adjusted for the HE+IHC case.
+# NOTE: ...
 
 import os
 import sys
 import math
-import json
 from pathlib import Path
 import numpy as np
 import torch
@@ -14,7 +13,7 @@ from PIL import Image
 
 # Codes from other folders
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from model_training.model_training_loop import ImageDataset, initialize_model
+from model_training.model_training_loop import initialize_model
 from preprocessing.rotate_images_correctly import rotate_image_with_correct_padding, get_centroid_of_mask
 from evaluation.general_evaluation import get_filenames_and_labels, apply_model_on_test_set
 
