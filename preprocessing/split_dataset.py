@@ -99,11 +99,12 @@ def split_dataset(stain_patient_counts_IHC, patient_to_stains_IHC, patient_image
     """ Splits the dataset into train, validation, and test sets based on the specified ratios and target number of images per stain in the test set.
 
     Parameters:
-        flat_id_to_patient (dict): Dictionary mapping idnr to patient.
-        stain_patient_counts (dict): Dictionary with stains as keys and dictionaries of patients and their image counts as values.
-        patient_to_stains (dict): Dictionary with patients as keys and sets of stains they are associated with as values.
-        val_ratio (float): Ratio of patients to be assigned to the validation set.
-        target_per_stain_test (int): Target number of images per stain in the test set.
+        stain_patient_counts_IHC (dict): Dictionary with stains as keys and dictionaries of patients and their image counts as values.
+        patient_to_stains_IHC (dict): Dictionary with patients as keys and sets of stains they are associated with as values.
+        patient_image_counts_HE (dict): Dictionary with patients as keys and their total image counts for HE images as values.
+        train_ratio (float): Ratio of patients to assign to the training set. Default is 0.7.
+        val_ratio (float): Ratio of patients to assign to the validation set. Default is 0.1.
+        target_per_stain_test (int): Target number of images per stain in the test set. Default is 91.
 
     Returns:
         assigned_patients (dict): Dictionary with patients as keys and their assigned set (train/val/test) as values. """
@@ -169,6 +170,7 @@ def analyze_split(assigned_patients, patient_to_stains_IHC, patient_image_counts
     
     Parameters:
         assigned_patients (dict): Dictionary with patients as keys and their assigned set (train/val/test) as values.
+        patient_to_stains_IHC (dict): Dictionary with patients as keys and sets of stains they are associated with as values.
         patient_image_counts_IHC (dict): Dictionary with patients as keys and their total image counts for IHC images as values.
         patient_image_counts_HE (dict): Dictionary with patients as keys and their total image counts for HE images as values.
         stain_patient_counts_IHC (dict): Dictionary with stains as keys and dictionaries of patients and their image counts as values.

@@ -119,10 +119,10 @@ def get_removed_cases(data):
 
 if __name__ == "__main__":
     # Load the configuration
-    stains = ['HE', 'IHC']
     HE_ground_truth_rotations = config.HE_ground_truth_rotations
     IHC_ground_truth_rotations = config.IHC_ground_truth_rotations
 
+    stains = ['HE', 'IHC']
     rotation_info_paths = [HE_ground_truth_rotations, IHC_ground_truth_rotations]
 
     for stain, rotations_path in zip(stains, rotation_info_paths):

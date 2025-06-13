@@ -76,8 +76,8 @@ def pad_to_fit_patches_with_centroid(image, mask, centroid, patch_size=16, bg_co
         image (PIL.Image): The image to be padded.
         mask (PIL.Image): The mask to be padded.
         centroid (tuple): The (x, y) coordinates of the centroid.
-        patch_size (int): The size of the patches.
-        bg_color (tuple): The background color to use for padding.
+        patch_size (int): The size of the patches. Default is 16.
+        bg_color (tuple): The background color to use for padding. Default is (245, 245, 245, 255).
     
     Returns:
         padded_image (PIL.Image): The padded image.
@@ -134,6 +134,7 @@ def rotate_image_with_correct_padding(image, mask, angle, bg_color=(245, 245, 24
     image (PIL.Image): The image to be rotated.
     mask (PIL.Image): The mask to be rotated.
     angle (float): The angle to rotate the image.
+    bg_color (tuple): The background color to use for padding. Default is (245, 245, 245, 255).
 
     Returns:
     padded_image (PIL.Image): The rotated image with padding.

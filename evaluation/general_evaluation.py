@@ -1,178 +1,37 @@
-# NOTE: ...
-
-import os
-import sys
-import math
-import json
-from pathlib import Path
-import numpy as np
-import torch
 from torch.utils.data import DataLoader, ConcatDataset
+import os
+import torch
+import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
+import sys
 
-# Codes from other folders
+# Codes from other files
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from model_training.model_training_loop import ImageDataset, initialize_model, filter_by_rotated_size_threshold
-from preprocessing.rotate_images_correctly import rotate_image_with_correct_padding
+from model_training.model_training_loop import initialize_model
+from preprocessing.rotate_images_correctly import rotate_image_with_correct_padding, get_centroid_of_mask
+import evaluation.evaluation_utils as eval_utils
 
-# To import the config file from the parent directory
+from pathlib import Path
+# Add parent directory to sys.path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 import config
 
 
 
-def extract_datasets(img_path, filter_large_images):
-    """ Extract the datasets for training, validation and test sets. The images and masks are filtered by size to ensure that they are small enough
-    to not let the model run out of memory. The maximum number of pixels is set to 2.700.000, which is the maximum size of the image after rotation.
-
-    Parameters:
-        img_path_ (str): Path to the folder containing the images. The folder should contain subfolders 'train', 'val' and 'test'.
-    filter_large_images (function): Function to filter the images based on size. The function should take a list of image paths and return a list of
-
-    Returns:
-        image_paths_train (list): List of filenames for the training set.
-        image_paths_val (list): List of filenames for the validation set. """
-
-    results = {}
-
-    for subset in ['val']:
-        img_dir  = os.path.join(img_path, subset)
-        filenames = sorted([fname for fname in os.listdir(img_dir) if fname.lower().endswith(('.jpg', '.jpeg', '.png'))])
-
-        # Build full paths to apply filtering
-        image_paths = [os.path.join(img_dir, fname) for fname in filenames]
-
-        # Filter images based on size
-        image_paths_filtered, suppressed = filter_large_images(image_paths)
-        filtered_filenames = [os.path.basename(p) for p in image_paths_filtered]
-
-        results[subset] = filtered_filenames
-        print(f"Number of {subset} images suppressed: {suppressed}\n")
-
-    return results['val']
-
-
-
-def get_filenames_and_labels(images_path, ground_truth_rotations):
-    # Load the images and masks for training and validation sets and filter them by size 
-    filenames_test = extract_datasets(
-        images_path,
-        lambda img_p: filter_by_rotated_size_threshold(img_p)
-    )
-
-    # TEMPORARY: Limit the number images
-    filenames_test = filenames_test[:30]
-
-    # Load the labels
-    with open(ground_truth_rotations, 'r') as f:
-        label_dict = json.load(f)
-    labels_test = [label_dict[fname] for fname in filenames_test]
-    
-    return filenames_test, labels_test
-
-
-
-
-def apply_model_on_test_set(model, test_loader, device):
-    """ Apply the trained model on the test set and return the predictions and labels.
-
-    Parameters:
-        model (nn.Module): Trained model.
-        test_loader (DataLoader): DataLoader for the test set.
-    Returns:
-        all_labels (np.ndarray): Array of labels.
-        all_preds (np.ndarray): Array of predictions.
-         
-    Note: This function is currently set to only process 5 batches for testing. """
-    
-    model.eval()
-    true_labels = []
-    preds = []
-
-    with torch.no_grad():
-        for image, label, pos in test_loader:           
-            image = image.to(device)
-            label = label.to(device).float().view(-1)
-            
-            # Predict the angle of rotation
-            output = model(image, pos).view(-1)
-
-            # Convert the label and output to degrees (0-360)
-            cos_label, sin_label = label.squeeze(0) 
-            angle_rad_label = torch.atan2(sin_label, cos_label)
-            angle_deg_label = angle_rad_label * 180.0 / math.pi % 360
-            true_labels.append(angle_deg_label.cpu().numpy())
-
-            cos_pred, sin_pred = output
-            angle_rad_pred = torch.atan2(sin_pred, cos_pred)
-            angle_deg_pred = angle_rad_pred * 180.0 / math.pi % 360
-            preds.append(angle_deg_pred.cpu().numpy())
-
-    true_labels = np.stack(true_labels)
-    preds = np.stack(preds)
-
-    return true_labels, preds
-
-
-
-def calculate_error(true_labels, preds):
-    """ Calculate the angular difference between true labels and predictions. The difference is wrapped to the range [-180, 180] degrees.
-    
-    Parameters:
-        true_labels (np.ndarray): Array of true labels.
-        preds (np.ndarray): Array of predictions.
-    
-    Returns:
-        angluar_diff (np.ndarray): Array of angular differences wrapped to [-180, 180] degrees.
-        abs_angluar_diff (np.ndarray): Array of absolute angular differences. """
-    
-    diff = true_labels - preds  # Compute raw difference
-    angluar_diff = np.remainder(diff + 180, 360) - 180  # wrap difference to [-180, 180]
-    abs_angluar_diff = np.abs(angluar_diff) # Convert to absolute angular difference
-
-    return angluar_diff, abs_angluar_diff
-
-
-def get_error_metrics(true_labels, preds):
-    """ Calculate and print the error metrics for the predictions.
-   
-    Parameters:
-        true_labels (np.ndarray): Array of true labels.
-        preds (np.ndarray): Array of predictions.
-    
-    Returns:
-        None. Prints the error metrics (include mean absolute error, median absolute error, mean squared error, 
-        and accuracy within 5 and 10 degrees) to the console. """
-    
-    angluar_diff, abs_angular_diff = calculate_error(true_labels, preds)
-
-    # Metrics
-    mae = np.mean(abs_angular_diff)
-    medae = np.median(abs_angular_diff)
-    mse = np.mean(angluar_diff ** 2)
-    acc_5 = np.mean(abs_angular_diff <= 5) # Accuracy within 5 degrees
-    acc_10 = np.mean(abs_angular_diff <= 10) # Accuracy within 10 degrees
-
-    # Print the metrics
-    print(f"Mean abs error: {mae:.4f} deg") 
-    print(f"Median abs error: {medae:.4f} deg") 
-    print(f"Mean squared error: {mse:.4f} deg") 
-    print(f"Accuracy within 5 deg: {acc_5:.4f}") 
-    print(f"Accuracy within 10 deg: {acc_10:.4f}")
-
-
-
 def visualize_predictions_vs_labels(true_labels, preds, evaluation_plots_path):
-    """ Visualize the predictions vs labels and the distribution of angular differences.
+    """ Visualize THE predictions by making plots of the predictions vs labels, the histogram of angular 
+    differences, histogram of absolute of absolute angular differences and the error bias plot.
+    
     Parameters:
         true_labels (np.ndarray): Array of true labels.
         preds (np.ndarray): Array of predictions.
         evaluation_plots_path (str): Path to the folder where the evaluation plots will be saved.
+
     Returns:
         None. Plots are saved to the evaluation_plots_path. """
        
-    angluar_diff, _ = calculate_error(true_labels, preds)
+    angluar_diff, abs_angular_diff = eval_utils.calculate_error(true_labels, preds)
 
     # Plot the predictions vs labels
     plt.figure()
@@ -189,11 +48,22 @@ def visualize_predictions_vs_labels(true_labels, preds, evaluation_plots_path):
     # Plot the histogram of angular differences
     plt.figure()
     plt.hist(angluar_diff, bins=30, edgecolor='black')
-    plt.xlabel("Absolute Angular Error (°)")
+    plt.xlabel("Angular Error (°)")
     plt.ylabel("Count")
     plt.title("Error Distribution")
     plt.grid(True)
     path = evaluation_plots_path + 'histogram_angluar_differences.pdf'
+    plt.savefig(path)
+    # plt.show()
+
+    # Plot the histogram of absolute angular differences
+    plt.figure()
+    plt.hist(abs_angular_diff, bins=30, edgecolor='black')
+    plt.xlabel("Absolute Angular Error (°)")
+    plt.ylabel("Count")
+    plt.title("Absolute Error Distribution")
+    plt.grid(True)
+    path = evaluation_plots_path + 'histogram_abs_angluar_differences.pdf'
     plt.savefig(path)
     # plt.show()
 
@@ -227,15 +97,15 @@ def get_filenames_based_on_error_percentiles(true_labels, preds, filenames):
         true_labels (np.ndarray): Array of true labels.
         preds (np.ndarray): Array of predictions.
         filenames (list): List of image filenames.
+
     Returns:
         filenames_selected (list): List of filenames of the images that are at the 1st, 50th and 99th percentile of absolute angular differences.
         true_labels_selected (list): List of true labels of the images that are at the 1st, 50th and 99th percentile of absolute angular differences.
         preds_selected (list): List of predictions of the images that are at the 1st, 50th and 99th percentile of absolute angular differences. """
 
-    _, abs_angluar_diff = calculate_error(true_labels, preds)
+    _, abs_angluar_diff = eval_utils.calculate_error(true_labels, preds)
 
     percentiles = [1, 50, 99]
-
     thresholds = np.percentile(abs_angluar_diff, percentiles)
     selected_indices = [np.argmin(np.abs(abs_angluar_diff - t)) for t in thresholds]
 
@@ -258,6 +128,7 @@ def plot_predictions_based_on_percentile(image_path, mask_path, filenames, true_
         true_labels (np.ndarray): Array of true labels.
         preds (np.ndarray): Array of predictions.
         evaluation_plots_path (str): Path to the folder where the evaluation plots will be saved.
+
     Returns:
         None. Plots are saved to the evaluation_plots_path. """
 
@@ -270,12 +141,41 @@ def plot_predictions_based_on_percentile(image_path, mask_path, filenames, true_
         img = Image.open(os.path.join(image_path, 'val', filename)).convert("RGB")
         mask = Image.open(os.path.join(mask_path, 'val', filename)).convert("L")
 
-        img, _ = rotate_image_with_correct_padding(img, mask, 0, bg_color=(255, 255, 255, 255))
-        predicted_rotated_img, _ = rotate_image_with_correct_padding(img, mask, preds_selected[i], bg_color=(255, 255, 255, 255))
-        correctly_rotated_img, _ = rotate_image_with_correct_padding(img, mask, true_labels_selected[i], bg_color=(255, 255, 255, 255))
+        # Original image and mask
+        img, mask = rotate_image_with_correct_padding(img, mask, 0, bg_color=(255, 255, 255, 255))
+
+        # Plot line for orientation
+        centroid_original = get_centroid_of_mask(mask)
+        dx = np.cos(np.deg2rad(90 - true_labels_selected[i])) * max(img.size[0], img.size[1])
+        dy = np.sin(np.deg2rad(90 - true_labels_selected[i])) * max(img.size[0], img.size[1])
+        x1, y1 = centroid_original[0] - dx, centroid_original[1] - dy
+        x2, y2 = centroid_original[0] + dx, centroid_original[1] + dy
+        ax[0, i].plot([x1, x2], [y1, y2], color='black', linewidth=0.8)
 
         ax[0, i].imshow(img)
-        ax[1, i].imshow(predicted_rotated_img)
+        
+        # Predicted rotated image and mask
+        predicted_rotated_img, predicted_rotated_mask = rotate_image_with_correct_padding(img, mask, preds_selected[i], bg_color=(255, 255, 255, 255))
+        
+        # Plot line for orientation
+        centroid_predicted = get_centroid_of_mask(predicted_rotated_mask)
+        dx = np.cos(np.deg2rad(90 - (true_labels_selected[i] - preds_selected[i]))) * max(predicted_rotated_img.size[0], predicted_rotated_img.size[1])
+        dy = np.sin(np.deg2rad(90 - (true_labels_selected[i] - preds_selected[i]))) * max(predicted_rotated_img.size[0], predicted_rotated_img.size[1])
+        x1, y1 = centroid_predicted[0] - dx, centroid_predicted[1] - dy
+        x2, y2 = centroid_predicted[0] + dx, centroid_predicted[1] + dy
+        ax[1, i].plot([x1, x2], [y1, y2], color='black', linewidth=0.8)
+
+        ax[1, i].imshow(predicted_rotated_img)      
+
+        # Correctly rotated image and mask
+        correctly_rotated_img, correctly_rotated_mask = rotate_image_with_correct_padding(img, mask, true_labels_selected[i], bg_color=(255, 255, 255, 255))
+        
+        # Plot line for orientation
+        centroid_correct = get_centroid_of_mask(correctly_rotated_mask)
+        x1, y1 = centroid_correct[0], centroid_correct[1] - max(correctly_rotated_img.size[0], correctly_rotated_img.size[1])
+        x2, y2 = centroid_correct[0], centroid_correct[1] + max(correctly_rotated_img.size[0], correctly_rotated_img.size[1])
+        ax[2, i].plot([x1, x2], [y1, y2], color='black', linewidth=0.8)
+
         ax[2, i].imshow(correctly_rotated_img)
 
     # Turn off the axes for all subplots
@@ -305,8 +205,20 @@ def plot_predictions_based_on_percentile(image_path, mask_path, filenames, true_
 
 
 def det_top10_worst_predictions(true_labels, preds, filenames):
+    """ Determine the top 10 worst predictions based on absolute angular differences.
+    
+    Parameters:
+        true_labels (np.ndarray): Array of true labels.
+        preds (np.ndarray): Array of predictions.
+        filenames (list): List of image filenames.
+    
+    Returns:
+        filenames_worst (list): List of filenames of the worst predictions.
+        true_labels_worst (list): List of true labels of the worst predictions.
+        preds_worst (list): List of predictions of the worst predictions.
+        errors_worst (list): List of angular differences of the worst predictions. """
 
-    angular_diff, abs_angluar_diff = calculate_error(true_labels, preds)
+    angular_diff, abs_angluar_diff = eval_utils.calculate_error(true_labels, preds)
 
     # Get indices of top 10 worst errors
     worst_indices = np.argsort(abs_angluar_diff)[-10:][::-1]  # descending order
@@ -322,6 +234,18 @@ def det_top10_worst_predictions(true_labels, preds, filenames):
 
 
 def plot_top10_worst_predictions(image_path, mask_path, filenames, true_labels, preds, evaluation_plots_path):
+    """ Plot the top 10 worst predictions based on absolute angular differences.
+
+    Parameters:
+        image_path (str): Path to the folder containing the images.
+        mask_path (str): Path to the folder containing the masks.
+        filenames (list): List of filenames of the images.
+        true_labels (np.ndarray): Array of true labels.
+        preds (np.ndarray): Array of predictions.
+        evaluation_plots_path (str): Path to the folder where the evaluation plots will be saved.
+
+    Returns:
+        None. Plots are saved to the evaluation_plots_path. """
     
     filenames_worst, true_labels_worst, preds_worst, errors_worst = det_top10_worst_predictions(true_labels, preds, filenames)
 
@@ -331,18 +255,47 @@ def plot_top10_worst_predictions(image_path, mask_path, filenames, true_labels, 
     for row in ax:
         for col in row:
             col.axis('off')
-            col.set_aspect('equal')      # same width and height
+            col.set_aspect('equal')    
 
     for i, filename in enumerate(filenames_worst):
         img = Image.open(os.path.join(image_path, 'val', filename)).convert("RGB")
         mask = Image.open(os.path.join(mask_path, 'val', filename)).convert("L")
 
-        img, _ = rotate_image_with_correct_padding(img, mask, 0, bg_color=(255, 255, 255, 255))
-        predicted_rotated_img, _ = rotate_image_with_correct_padding(img, mask, preds_worst[i], bg_color=(255, 255, 255, 255))
-        correctly_rotated_img, _ = rotate_image_with_correct_padding(img, mask, true_labels_worst[i], bg_color=(255, 255, 255, 255))
+        # Original image and mask
+        img, mask = rotate_image_with_correct_padding(img, mask, 0, bg_color=(255, 255, 255, 255))
+
+        # Plot line for orientation
+        centroid_original = get_centroid_of_mask(mask)
+        dx = np.cos(np.deg2rad(90 - true_labels_worst[i])) * max(img.size[0], img.size[1])
+        dy = np.sin(np.deg2rad(90 - true_labels_worst[i])) * max(img.size[0], img.size[1])
+        x1, y1 = centroid_original[0] - dx, centroid_original[1] - dy
+        x2, y2 = centroid_original[0] + dx, centroid_original[1] + dy
+        ax[0, i].plot([x1, x2], [y1, y2], color='black', linewidth=0.8)
 
         ax[0, i].imshow(img)
-        ax[1, i].imshow(predicted_rotated_img)
+        
+        # Predicted rotated image and mask
+        predicted_rotated_img, predicted_rotated_mask = rotate_image_with_correct_padding(img, mask, preds_worst[i], bg_color=(255, 255, 255, 255))
+        
+        # Plot line for orientation
+        centroid_predicted = get_centroid_of_mask(predicted_rotated_mask)
+        dx = np.cos(np.deg2rad(90 - (true_labels_worst[i] - preds_worst[i]))) * max(predicted_rotated_img.size[0], predicted_rotated_img.size[1])
+        dy = np.sin(np.deg2rad(90 - (true_labels_worst[i] - preds_worst[i]))) * max(predicted_rotated_img.size[0], predicted_rotated_img.size[1])
+        x1, y1 = centroid_predicted[0] - dx, centroid_predicted[1] - dy
+        x2, y2 = centroid_predicted[0] + dx, centroid_predicted[1] + dy
+        ax[1, i].plot([x1, x2], [y1, y2], color='black', linewidth=0.8)
+
+        ax[1, i].imshow(predicted_rotated_img)     
+
+        # Correctly rotated image and mask
+        correctly_rotated_img, correctly_rotated_mask = rotate_image_with_correct_padding(img, mask, true_labels_worst[i], bg_color=(255, 255, 255, 255))
+        
+        # Plot line for orientation
+        centroid_correct = get_centroid_of_mask(correctly_rotated_mask)
+        x1, y1 = centroid_correct[0], centroid_correct[1] - max(correctly_rotated_img.size[0], correctly_rotated_img.size[1])
+        x2, y2 = centroid_correct[0], centroid_correct[1] + max(correctly_rotated_img.size[0], correctly_rotated_img.size[1])
+        ax[2, i].plot([x1, x2], [y1, y2], color='black', linewidth=0.8)
+
         ax[2, i].imshow(correctly_rotated_img)
     
     # Set row labels on the left-most column only
@@ -359,7 +312,6 @@ def plot_top10_worst_predictions(image_path, mask_path, filenames, true_labels, 
             0.93, # y-position (same for all columns)
             label, ha='center', va='bottom', fontsize=12)
 
-    # plt.tight_layout()
     plt.subplots_adjust(left=0.04, top=0.91)
     path = evaluation_plots_path + 'worst_predictions.pdf'
     fig.savefig(path)
@@ -367,16 +319,15 @@ def plot_top10_worst_predictions(image_path, mask_path, filenames, true_labels, 
 
 
 
-
-
 if __name__ == "__main__":
     
     # Load configuration
-    STAIN = config.stain1
-    PRETRAINED_MODEL = config.pretrained_model
-    TRAINED_MODEL_PATH = config.trained_model_path1
-    EVALUATION_PLOTS_PATH = config.evaluation_plots_path1
     RANDOM_SEED = config.random_seed
+    PRETRAINED_MODEL = config.pretrained_model
+    STAIN = config.stain  # 'HE', 'IHC' or 'HE+IHC'
+    UNNIFORM_DISTRIBUTION = config.uniform_distribution
+    TRAINED_MODEL_PATH = config.trained_model_path
+    EVALUATION_PLOTS_PATH = config.evaluation_plots_path
     
     # Set the random seed for reproducibility
     torch.manual_seed(RANDOM_SEED)
@@ -388,29 +339,29 @@ if __name__ == "__main__":
         images_path = config.HE_crops_masked_padded 
         masks_path = config.HE_masks_padded
 
-        filenames_test, labels_test = get_filenames_and_labels(images_path, ground_truth_rotations)
-        test_data = ImageDataset(image_path=images_path, mask_path=masks_path, subset='val', filenames=filenames_test, labels=labels_test, perform_transforms=False)
+        filenames_test, labels_test = eval_utils.get_filenames_and_labels(images_path, ground_truth_rotations)
+        test_data = eval_utils.ImageDataset(image_path=images_path, mask_path=masks_path, subset='val', filenames=filenames_test, labels=labels_test, uniform_distribution=UNNIFORM_DISTRIBUTION)
 
     elif STAIN == 'IHC':
         ground_truth_rotations = config.IHC_ground_truth_rotations
         images_path = config.IHC_crops_masked_padded 
         masks_path = config.IHC_masks_padded
 
-        filenames_test, labels_test = get_filenames_and_labels(images_path, ground_truth_rotations)
-        test_data = ImageDataset(image_path=images_path, mask_path=masks_path, subset='val', filenames=filenames_test, labels=labels_test, perform_transforms=False)
+        filenames_test, labels_test = eval_utils.get_filenames_and_labels(images_path, ground_truth_rotations)
+        test_data = eval_utils.ImageDataset(image_path=images_path, mask_path=masks_path, subset='val', filenames=filenames_test, labels=labels_test,  uniform_distribution=UNNIFORM_DISTRIBUTION)
 
     elif STAIN == 'HE+IHC':
         ground_truth_rotations_HE = config.HE_ground_truth_rotations
         images_path_HE = config.HE_crops_masked_padded 
         masks_path_HE = config.HE_masks_padded
-        filenames_test_HE, labels_test_HE = get_filenames_and_labels(images_path_HE, ground_truth_rotations_HE)
-        test_data_HE = ImageDataset(image_path=images_path_HE, mask_path=masks_path_HE, subset='val', filenames=filenames_test_HE, labels=labels_test_HE, perform_transforms=False)
+        filenames_test_HE, labels_test_HE = eval_utils.get_filenames_and_labels(images_path_HE, ground_truth_rotations_HE)
+        test_data_HE = eval_utils.ImageDataset(image_path=images_path_HE, mask_path=masks_path_HE, subset='val', filenames=filenames_test_HE, labels=labels_test_HE,  uniform_distribution=UNNIFORM_DISTRIBUTION)
 
         ground_truth_rotations_IHC = config.IHC_ground_truth_rotations
         images_path_IHC = config.IHC_crops_masked_padded 
         masks_path_IHC = config.IHC_masks_padded
-        filenames_test_IHC, labels_test_IHC = get_filenames_and_labels(images_path_IHC, ground_truth_rotations_IHC)
-        test_data_IHC = ImageDataset(image_path=images_path_IHC, mask_path=masks_path_IHC, subset='val', filenames=filenames_test_IHC, labels=labels_test_IHC, perform_transforms=False)
+        filenames_test_IHC, labels_test_IHC = eval_utils.get_filenames_and_labels(images_path_IHC, ground_truth_rotations_IHC)
+        test_data_IHC = eval_utils.ImageDataset(image_path=images_path_IHC, mask_path=masks_path_IHC, subset='val', filenames=filenames_test_IHC, labels=labels_test_IHC,  uniform_distribution=UNNIFORM_DISTRIBUTION)
 
         # Combine
         test_data = ConcatDataset([test_data_HE, test_data_IHC])
@@ -423,18 +374,19 @@ if __name__ == "__main__":
     # Initialize the model wjth correct weights
     model = initialize_model(pretrained_weights_path=PRETRAINED_MODEL)
     model.load_state_dict(torch.load(TRAINED_MODEL_PATH, map_location=device))
+    model.eval()
     model.to(device)
 
     # Apply the model on the test set
-    test_labels, test_pred = apply_model_on_test_set(model, test_loader, device)
+    test_labels, test_pred = eval_utils.apply_model_on_test_set(model, test_loader, device)
 
     # Calculate error metrics
-    get_error_metrics(test_labels, test_pred)
+    eval_utils.get_error_metrics(test_labels, test_pred)
 
     # Visualize predictions vs labels
     visualize_predictions_vs_labels(test_labels, test_pred, EVALUATION_PLOTS_PATH)
 
-    # Visualize errors with images: TODO: DOES NOT WORK FOR HE+IHC CASE
-    plot_predictions_based_on_percentile(images_path, masks_path, filenames_test, test_labels, test_pred, EVALUATION_PLOTS_PATH)
-    plot_top10_worst_predictions(images_path, masks_path, filenames_test, test_labels, test_pred, EVALUATION_PLOTS_PATH)
-
+    # Visualize errors with images - does not work for HE+IHC case
+    if STAIN != 'HE+IHC':
+        plot_predictions_based_on_percentile(images_path, masks_path, filenames_test, test_labels, test_pred, EVALUATION_PLOTS_PATH)
+        plot_top10_worst_predictions(images_path, masks_path, filenames_test, test_labels, test_pred, EVALUATION_PLOTS_PATH)

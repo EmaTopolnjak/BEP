@@ -306,14 +306,14 @@ class ViT(nn.Module):
             self.classifier = nn.Identity()
         elif self.n_classes < 1:
             self.classifier = nn.Identity()
-        else:
+        else: # Custom classifier head
             self.classifier = nn.Sequential(
                 nn.Linear(embed_dim, embed_dim // 2),
                 nn.ReLU(),
                 nn.LayerNorm(embed_dim // 2),
                 nn.Dropout(dropout_prob),
                 nn.Linear(embed_dim // 2, 2) 
-            ) # TEMPORARY: testing which head works best
+            ) 
 
         # initialize parameter values
         trunc_normal_(self.cls_token, std=0.02)

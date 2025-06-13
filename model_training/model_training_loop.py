@@ -1,5 +1,3 @@
-# NOTE: ...
-
 import random
 import os
 import sys
@@ -7,13 +5,12 @@ import math
 import json
 from pathlib import Path
 import numpy as np
-import torch
-from torch.utils.data import DataLoader, Dataset, ConcatDataset
+from torch.utils.data import Dataset, DataLoader, ConcatDataset
 import torchvision
 import matplotlib.pyplot as plt
 from PIL import Image, ImageOps
 
-# Codes from other codes
+# Codes from other files
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from model_training.ViT_model import ViT, convert_state_dict
 from preprocessing.rotate_images_correctly import rotate_image_with_correct_padding, get_centroid_of_mask
@@ -22,11 +19,15 @@ from preprocessing.rotate_images_correctly import rotate_image_with_correct_padd
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 import config
 
+# Set environment variable to allow expandable CUDA memory segments
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+import torch
+
 
 
 def filter_by_rotated_size_threshold(image_paths, set, max_pixels=1900000): # On GPU, max. is 2,700,000
     """ Filter images and masks based on the estimated size after rotation. The maximum number of pixels is set to 
-    2.700.000. The estimated size is calculated based on the maximum size of the image after rotation, which is when the image is 
+    1,900,000. The estimated size is calculated based on the maximum size of the image after rotation, which is when the image is 
     rotated by 45 degrees. If the estimated size is less than or equal to the maximum number of pixels, the image and mask are kept. 
     
     Parameters:
@@ -35,8 +36,7 @@ def filter_by_rotated_size_threshold(image_paths, set, max_pixels=1900000): # On
         max_pixels (int): Maximum number of pixels allowed after rotation. Default is 2700000.
         
     Returns:
-        filtered_images (list): List of filtered image file paths.
-        filtered_masks (list): List of filtered mask file paths.
+        filtered_images (list): List of filtered image filenames.
         suppressed_count (int): Number of images and masks that were suppressed due to exceeding the maximum pixel threshold. """
     
     filtered_images = []
@@ -65,12 +65,11 @@ def filter_by_rotated_size_threshold(image_paths, set, max_pixels=1900000): # On
 
 
 def extract_datasets(img_path, filter_large_images):
-    """ Extract the datasets for training, validation and test sets. The images and masks are filtered by size to ensure that they are small enough
-    to not let the model run out of memory. The maximum number of pixels is set to 2.700.000, which is the maximum size of the image after rotation.
+    """ Extract the datasets (training and validation) from the given image path. The images are filtered based on size using the provided filter function.
 
     Parameters:
         img_path (str): Path to the folder containing the images. The folder should contain subfolders 'train', 'val' and 'test'.
-        filter_large_images (function): Function to filter images based on size. It should take a list of image paths and return a list of filtered image paths and the number of suppressed images.
+        filter_large_images (function): Function to filter images based on size. 
 
     Returns:
         image_paths_train (list): List of filenames for the training set.
@@ -97,12 +96,20 @@ def extract_datasets(img_path, filter_large_images):
 
 
 def get_filenames_and_labels(images_path, ground_truth_rotations):
-    # Load the images and masks for training and validation sets and filter them by size 
-    filenames_train, filenames_val = extract_datasets(images_path,filter_by_rotated_size_threshold)
+    """ Get the filenames and labels for the training and validation sets. The images are filtered by size using the provided filter function.
+    
+    Parameters:
+        images_path (str): Path to the folder containing the images. The folder should contain subfolders 'train' and 'val'.
+        ground_truth_rotations (str): Path to the JSON file containing the ground truth rotations for the images.
 
-    # TEMPORARY: Limit the number images
-    filenames_train = filenames_train[:10]
-    filenames_val = filenames_val[:10]
+    Returns:
+        filenames_train (list): List of filenames for the training set.
+        filenames_val (list): List of filenames for the validation set.
+        labels_train (list): List of labels corresponding to the images in the training set.
+        labels_val (list): List of labels corresponding to the images in the validation set. """
+    
+    # Load the images and masks for training and validation sets and filter them by size 
+    filenames_train, filenames_val = extract_datasets(images_path, filter_by_rotated_size_threshold)
 
     # Load the labels
     with open(ground_truth_rotations, 'r') as f:
@@ -120,16 +127,22 @@ class ImageDataset(Dataset):
     Attributes:
         image_paths (list): List of image file paths.
         mask_paths (list): List of mask file paths.
-        labels (list): List of labels corresponding to the images.
+        filenames (list): List of filenames for the images in the dataset.
+        labels (list): List of labels corresponding to the images in the dataset.
         perform_transform (bool): Whether to apply augmentations to the images.
+        threshold_fine_angle (int): Epoch after which fine-angle augmentations are applied.
+        epoch (int): Current epoch number.
+
         
     Methods:
         __len__(): Returns the number of images in the dataset.
         __getitem__(idx): Returns the image, label and position matrix of the patches for a given index (image in the dataset).
-        get_pos(img, mask): Returns the position of each patch in the image. 
-        augment_image(img, mask): Augments the image and mask by applying random transformations. """
+        set_epoch(epoch): Sets the current epoch number.
+        update_transform(): Updates the augmentations based on the current epoch. It is used to switch to fine-angle augmentations after a certain epoch.
+        augment_image(img, mask, idx): Augments the image and mask by applying random transformations and returns the augmented image, mask and angle.
+        get_pos(img, mask): Returns the position of each patch in the image. The position is calculated based on the centroid of the mask. """
 
-    def __init__(self, image_path, mask_path, subset, filenames, labels, perform_transforms=False):
+    def __init__(self, image_path, mask_path, subset, filenames, labels, perform_transforms=False, threshold_fine_angle=50):
         """ Custom dataset for loading images and labels.
         
         Parameters:
@@ -138,13 +151,16 @@ class ImageDataset(Dataset):
             subset (str): Subset of the dataset ('train', 'val', 'test').
             filenames (list): List of filenames for the images in the subset.
             labels (list): List of labels corresponding to the images in the subset.
-            perform_transforms (bool): Whether to apply augmentations to the images. Default is False."""
+            perform_transforms (bool): Whether to apply augmentations to the images. Default is False.
+            threshold_fine_angle (int): Epoch after which fine-angle augmentations are applied. Default is 50. """
             
         self.image_path = os.path.join(image_path, subset)
         self.mask_path = os.path.join(mask_path, subset)
         self.filenames = filenames 
         self.labels = labels 
-        self.perform_transform = perform_transforms 
+        self.epoch = 0 # initial epoch
+        self.perform_transform = perform_transforms # Whether to apply augmentations to the images
+        self.threshold_fine_angle = threshold_fine_angle # After this epoch, fine-angle augmentations are applied
 
 
     def __len__(self):
@@ -155,7 +171,7 @@ class ImageDataset(Dataset):
     def __getitem__(self, idx):
         """ Returns the image, label and position matrix of the patches for a given index (image in the dataset).
         The image is augmented and transformed to a tensor. The position matrix is calculated based on the centroid of the mask.
-        The image is normalized and the mask is converted to a tensor. The angle of rotation is also returned.
+        The image is normalized and the mask is converted to a tensor. The angle of rotation is also returned as vector.
 
         Parameters:
             idx (int): Index of the image and label to retrieve.
@@ -190,9 +206,29 @@ class ImageDataset(Dataset):
         return img, angle_vector, pos
     
 
+    def set_epoch(self, epoch):
+        """ Sets the current epoch number. This is used to update the augmentations based on the current epoch.
+        Parameters:
+            epoch (int): Current epoch number. """
+        
+        self.epoch = epoch
+        
+
+    def update_transform(self):
+        """ Updates the augmentations based on the current epoch. It is used to switch to extra fine-angle augmentations after a certain epoch.
+        If the current epoch is greater than or equal to the threshold for fine-angle augmentations, the extra small angles are set to True.
+        If the current epoch is less than the threshold, the extra small angles are set to False. """
+
+        if self.epoch >= self.threshold_fine_angle:
+            self.extra_small_angles = True
+        else:
+            self.extra_small_angles = False
+
+
     def augment_image(self, img, mask, idx):
         """ Augment the image and mask by addjusting brightness, contrast, saturation and hue. Also the image is flipped vertically with
-        a probability of 30%. The image and mask are rotated by a random angle between 0 and 360 degrees. 
+        a probability of 50%. The image and mask are rotated by.. If the extra small angles are set to True, the angle is biased towards 0 
+        degrees with a probability of 25%. Otherwise, the angle is uniformly distributed between 10 and 350 degrees.
         
         Parameters:
             img (PIL.Image): Image to be augmented.
@@ -201,11 +237,11 @@ class ImageDataset(Dataset):
         Returns:
             img (PIL.Image): Augmented image.
             mask (PIL.Image): Augmented mask.
-            angle (float): Angle of rotation applied to the image and mask. """
+            angle (float): Rotation of image and mask. """
         
         # Adjust brightness, contrast, saturation and hue
         transform = torchvision.transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05)
-        img = transform(img) # Apply color jitter to image
+        img = transform(img) 
 
         angle = self.labels[idx] # Get the angle from the labels 
 
@@ -216,10 +252,20 @@ class ImageDataset(Dataset):
             mask = ImageOps.mirror(mask)
             angle = 360 - angle # Adjust angle accordingly 
 
-        # Apply random rotation 
-        added_angle = random.random()*360-180 
+        # Rotate the image and mask based on the calculated angle
+        if self.extra_small_angles:
+            if random.random() < 0.25:
+                # Bias to near 0°
+                final_angle = random.uniform(0, 10) if random.random() < 0.5 else random.uniform(350, 360)
+            else:
+                # General angle range
+                final_angle = random.uniform(10, 350)
+        else:
+            final_angle = random.uniform(0, 360)
+
+        added_angle = (final_angle - angle) % 360
         img, mask = rotate_image_with_correct_padding(img, mask, -float(added_angle))
-        angle = (angle + added_angle) % 360
+        angle = (angle + added_angle) % 360 # Update angle to final (clipped to [0, 360])
 
         return img, mask, angle
     
@@ -253,14 +299,14 @@ class ImageDataset(Dataset):
         y_range = -(torch.arange(h_patches) - centroid_patch_y)
 
         y_grid, x_grid = torch.meshgrid(y_range, x_range, indexing='ij')
-        pos = torch.stack([y_grid, x_grid], dim=2).reshape(-1,2)  # Stack into (H, W, 2) adn then flatten to (H*W, 2)
+        pos = torch.stack([y_grid, x_grid], dim=2).reshape(-1,2)  # Stack into (H, W, 2) and then flatten to (H*W, 2)
 
         return pos
 
     
 
 def initialize_model(pretrained_weights_path):
-    """ Initialize the model with pretrained weights.
+    """ Initialize the model with pretrained weights. 
     
     Parameters:
         pretrained_weights_path (str): Path to the pretrained weights.
@@ -308,7 +354,7 @@ def training_plot(train_losses, val_losses, save_path):
         None. Plots the training and validation loss. """
     
     plt.figure(figsize=(10, 5))
-    plt.plot(range(1, len(train_losses)+1), train_losses, label='Train Loss')
+    plt.plot(range(1, len(train_losses)+1), train_losses, label='Training Loss')
     plt.plot(range(1, len(val_losses)+1), val_losses, label='Validation Loss')
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
@@ -320,7 +366,7 @@ def training_plot(train_losses, val_losses, save_path):
 
 
 
-def append_losses_to_file(filename, epoch, train_loss, val_loss):
+def append_losses_to_file(filename, epoch, train_loss, val_loss, learning_rate):
     """ Append the training and validation loss to a file. If the file does not exist, create it and write the header.
     
     Parameters:
@@ -328,6 +374,7 @@ def append_losses_to_file(filename, epoch, train_loss, val_loss):
         epoch (int): Current epoch number.
         train_loss (float): Training loss for the current epoch.
         val_loss (float): Validation loss for the current epoch.
+        learning_rate (float): Learning rate used for the current epoch.
     
     Returns:
         None. Appends the losses to the file. If the file does not exist, creates it and writes the header. """
@@ -335,44 +382,45 @@ def append_losses_to_file(filename, epoch, train_loss, val_loss):
     header_needed = not os.path.exists(filename)
     with open(filename, "a") as f:
         if header_needed:
-            f.write(f"Epoch\tTrain Loss\tValidation Loss\n")
-        f.write(f"{epoch}\t{train_loss:.4f}\t{val_loss:.4f}\n")
+            f.write(f"epoch\ttrain_loss\tvalidation_loss\tlearning_rate\n")
+        f.write(f"{epoch}\t{train_loss:.5f}\t{val_loss:.5f}\t{learning_rate:.2e}\n")
 
 
 
-def train_model(model, train_loader, val_loader, device, learning_rate, epochs, accumulation_steps, save_training_plot_path, trained_model_path, training_log_path="training_log.txt"):
+def train_model(model, train_dataset, train_loader, val_loader, device, learning_rate, epochs, accumulation_steps, save_training_plot_path, trained_model_path, training_log_path):
     """ Train the model on the training set and validate on the validation set. The loss is calculated using circular mean squared error.
     The model is trained using gradient accumulation to reduce memory usage. The training and validation loss are plotted and saved. The 
     trained model is saved to a file.
 
     Parameters:
         model (nn.Module): Model to be trained.
-        train_loader (DataLoader): DataLoader for the training set.
-        val_loader (DataLoader): DataLoader for the validation set.
+        train_dataset (ImageDataset): Dataset for training.
+        train_loader (DataLoader): DataLoader for training dataset.
+        val_loader (DataLoader): DataLoader for validation dataset.
         device (torch.device): Device to train the model on (CPU or GPU).
         learning_rate (float): Learning rate for the optimizer.
         epochs (int): Number of epochs to train the model.
-        accumulation_steps (int): Number of steps to accumulate gradients before updating weights.
+        accumulation_steps (int): Number of gradient accumulation steps.
         save_training_plot_path (str): Path to save the training plot.
         trained_model_path (str): Path to save the trained model.
-        training_log_path (str): Path to save the training log file. Default is "training_log.txt".
+        training_log_path (str): Path to save the training log.
 
     Returns:
-        model (nn.Module): Trained model.
-    
-    Note: For now, the model is trained on 2 accumlation steps per epoch and validated on 5 batches. """
+        model (nn.Module): Trained model. """
 
     model = model.to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=3, factor=0.5)
-    loss_fn = torch.nn.MSELoss() 
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-2)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5, factor=0.5)
     train_losses = []
     val_losses = []
 
     print("\nStarting training...")
 
     for epoch in range(epochs):
-        print(f"\nEpoch {epoch + 1}/{epochs}")
+        # print(f"\nEpoch {epoch + 1}/{epochs}")
+        train_dataset.set_epoch(epoch)
+        train_dataset.update_transform()
+
         model.train()
         optimizer.zero_grad()
         
@@ -388,23 +436,22 @@ def train_model(model, train_loader, val_loader, device, learning_rate, epochs, 
 
             # Forward pass, compute loss and backpropagate
             output = model(image, pos).view(-1)  # shape output: (B, 1) -> (B,)
-            loss = loss_fn(output, label) / accumulation_steps
+            loss = torch.nn.functional.mse_loss(output, label, reduction='sum') / accumulation_steps
             loss.backward()
             
             # Update weights every accumulation_steps
             if (step + 1) % accumulation_steps == 0:
-                # print('Updating weights...')
                 optimizer.step()
                 optimizer.zero_grad()
                 accumulation_count += 1
 
-        # Log the loss for the current batch
-        running_loss += loss.item() * accumulation_steps  # Undo scaled loss for logging
-        avg_train_loss = running_loss / step # Scale the loss for the number of images that were used 
+            # Log the loss for the current batch
+            running_loss += loss.item() * accumulation_steps  # Undo scaled loss for logging
+        
+        avg_train_loss = running_loss / (step+1) # Scale the loss for the number of images that were used 
         train_losses.append(avg_train_loss)
         
         # ---- Validation ----
-        print("Validation step")
         model.eval()
         val_loss = 0.0
 
@@ -417,14 +464,20 @@ def train_model(model, train_loader, val_loader, device, learning_rate, epochs, 
 
                 # Forward pass and compute loss
                 output = model(image, pos).view(-1)
-                loss = loss_fn(output, label)
+                loss = torch.nn.functional.mse_loss(output, label, reduction='sum')
                 val_loss += loss.item()
 
-        avg_val_loss = val_loss / step # Scale the loss for the number of images that were used
+        torch.cuda.empty_cache() # Clear the cache to free up memory
+
+        avg_val_loss = val_loss / (step+1) # Scale the loss for the number of images that were used
         val_losses.append(avg_val_loss)
         print(f"Epoch {epoch+1}/{epochs} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | Learning Rate: {scheduler.optimizer.param_groups[0]['lr']:.2e}")
         scheduler.step(avg_val_loss)  # Update learning rate
-        append_losses_to_file(training_log_path, epoch+1, avg_train_loss, avg_val_loss)
+        append_losses_to_file(training_log_path, epoch+1, avg_train_loss, avg_val_loss, scheduler.optimizer.param_groups[0]['lr'])
+
+        # every 10 epochs, save the model 
+        if (epoch + 1) % 10 == 0:
+            torch.save(model.state_dict(), f"{os.path.splitext(trained_model_path)[0]}_epoch{epoch+1}{os.path.splitext(trained_model_path)[1]}")
 
     # Save the model and plot the losses
     torch.save(model.state_dict(), trained_model_path)
@@ -435,26 +488,46 @@ def train_model(model, train_loader, val_loader, device, learning_rate, epochs, 
 
 
 
+def seed_worker(worker_id):
+    """ Set the random seed for each worker to ensure reproducibility. The seed is set based on the global RANDOM_SEED and the worker_id.
+    
+    Parameters:
+        worker_id (int): ID of the worker.
+    
+    Returns:
+        None. Sets the random seed for the worker. """
+    
+    worker_seed = RANDOM_SEED + worker_id
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
+
+
+
 if __name__ == "__main__":
     
     # Load configuration
-    STAIN = config.stain3  # 'HE', 'IHC' or 'HE+IHC'
+    RANDOM_SEED = config.random_seed
     PRETRAINED_MODEL = config.pretrained_model
-    TRAINED_MODEL_PATH = config.trained_model_path3
-    TRAINING_PLOT_PATH = config.training_plot_path
-    TRAINING_LOG_PATH = config.training_log_path
-    BATCH_SIZE = config.batch_size 
-    NUM_EPOCHS = config.num_epochs
     LEARNING_RATE = config.learning_rate
     ACCUMULATIONS_STEPS = config.accumulation_steps
-    RANDOM_SEED = config.random_seed
-    DROPOUT_PROB = config.dropout_prob
-
+    STAIN = config.stain  # 'HE', 'IHC' or 'HE+IHC'
+    NUM_EPOCHS = config.num_epochs
+    FINE_ANGLE_THRESHOLD = config.fine_angle_epoch_threshold  # Threshold for switching to fine-angle augmentations
+    TRAINED_MODEL_PATH = config.trained_model_path
+    TRAINING_PLOT_PATH = config.training_plot_path
+    TRAINING_LOG_PATH = config.training_log_path
+   
     # Set the random seed for reproducibility
     random.seed(RANDOM_SEED)
     torch.manual_seed(RANDOM_SEED)
     np.random.seed(RANDOM_SEED)
-
+    torch.cuda.manual_seed(RANDOM_SEED)
+    torch.cuda.manual_seed_all(RANDOM_SEED)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    g = torch.Generator()
+    g.manual_seed(RANDOM_SEED)
+ 
     # Load the images, masks and corresponding rotations
     if STAIN == 'HE':
         ground_truth_rotations = config.HE_ground_truth_rotations
@@ -462,7 +535,7 @@ if __name__ == "__main__":
         masks_path = config.HE_masks_padded
 
         filenames_train, filenames_val, labels_train, labels_val = get_filenames_and_labels(images_path, ground_truth_rotations)
-        train_data = ImageDataset(image_path=images_path, mask_path=masks_path, subset='train', filenames=filenames_train, labels=labels_train, perform_transforms=True)
+        train_data = ImageDataset(image_path=images_path, mask_path=masks_path, subset='train', filenames=filenames_train, labels=labels_train, perform_transforms=True, threshold_fine_angle=FINE_ANGLE_THRESHOLD)
         val_data = ImageDataset(image_path=images_path, mask_path=masks_path, subset='val', filenames=filenames_val, labels=labels_val, perform_transforms=False)
 
     elif STAIN == 'IHC':
@@ -471,7 +544,7 @@ if __name__ == "__main__":
         masks_path = config.IHC_masks_padded
 
         filenames_train, filenames_val, labels_train, labels_val = get_filenames_and_labels(images_path, ground_truth_rotations)
-        train_data = ImageDataset(image_path=images_path, mask_path=masks_path, subset='train', filenames=filenames_train, labels=labels_train, perform_transforms=True)
+        train_data = ImageDataset(image_path=images_path, mask_path=masks_path, subset='train', filenames=filenames_train, labels=labels_train, perform_transforms=True, threshold_fine_angle=FINE_ANGLE_THRESHOLD)
         val_data = ImageDataset(image_path=images_path, mask_path=masks_path, subset='val', filenames=filenames_val, labels=labels_val, perform_transforms=False)
 
     elif STAIN == 'HE+IHC':
@@ -479,14 +552,14 @@ if __name__ == "__main__":
         images_path_HE = config.HE_crops_masked_padded 
         masks_path_HE = config.HE_masks_padded
         filenames_train_HE, filenames_val_HE, labels_train_HE, labels_val_HE = get_filenames_and_labels(images_path_HE, ground_truth_rotations_HE)
-        train_data_HE = ImageDataset(image_path=images_path_HE, mask_path=masks_path_HE, subset='train', filenames=filenames_train_HE, labels=labels_train_HE, perform_transforms=True)
+        train_data_HE = ImageDataset(image_path=images_path_HE, mask_path=masks_path_HE, subset='train', filenames=filenames_train_HE, labels=labels_train_HE, perform_transforms=True, threshold_fine_angle=FINE_ANGLE_THRESHOLD)
         val_data_HE = ImageDataset(image_path=images_path_HE, mask_path=masks_path_HE, subset='val', filenames=filenames_val_HE, labels=labels_val_HE, perform_transforms=False)
 
         ground_truth_rotations_IHC = config.IHC_ground_truth_rotations
         images_path_IHC = config.IHC_crops_masked_padded 
         masks_path_IHC = config.IHC_masks_padded
         filenames_train_IHC, filenames_val_IHC, labels_train_IHC, labels_val_IHC = get_filenames_and_labels(images_path_IHC, ground_truth_rotations_IHC)
-        train_data_IHC = ImageDataset(image_path=images_path_IHC, mask_path=masks_path_IHC, subset='train', filenames=filenames_train_IHC, labels=labels_train_IHC, perform_transforms=True)
+        train_data_IHC = ImageDataset(image_path=images_path_IHC, mask_path=masks_path_IHC, subset='train', filenames=filenames_train_IHC, labels=labels_train_IHC, perform_transforms=True, threshold_fine_angle=FINE_ANGLE_THRESHOLD)
         val_data_IHC = ImageDataset(image_path=images_path_IHC, mask_path=masks_path_IHC, subset='val', filenames=filenames_val_IHC, labels=labels_val_IHC, perform_transforms=False)
 
         # Combine
@@ -496,15 +569,24 @@ if __name__ == "__main__":
     else:
         raise ValueError("Invalid stain type. Choose 'HE', 'IHC' or 'HE+IHC'.")  
 
-    # # Create dataloader
-    # train_loader = DataLoader(train_data, batch_size=1, shuffle=True) 
-    # val_loader = DataLoader(val_data, batch_size=1, shuffle=False) 
-    
-    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # Create dataloader for training and validation set
+    train_loader = DataLoader(train_data, batch_size=1, shuffle=True, worker_init_fn=seed_worker, generator=g)
+    val_loader = DataLoader(val_data, batch_size=1, shuffle=False, worker_init_fn=seed_worker, generator=g) 
 
-    # # Initialize the model
-    # model = initialize_model(pretrained_weights_path=PRETRAINED_MODEL)
-    # model = model.to(device)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Initialize the model
+    model = initialize_model(pretrained_weights_path=PRETRAINED_MODEL)
+    model = model.to(device)
     
-    # # Model training
-    # optimized_model = train_model(model, train_loader, val_loader, device, learning_rate=LEARNING_RATE, epochs=NUM_EPOCHS, accumulation_steps=ACCUMULATIONS_STEPS, save_training_plot_path=TRAINING_PLOT_PATH, trained_model_path=TRAINED_MODEL_PATH, training_log_path=TRAINING_LOG_PATH)
+    # Model training
+    optimized_model = train_model(model, train_data, train_loader, val_loader, device, learning_rate=LEARNING_RATE, epochs=NUM_EPOCHS, accumulation_steps=ACCUMULATIONS_STEPS, save_training_plot_path=TRAINING_PLOT_PATH, trained_model_path=TRAINED_MODEL_PATH, training_log_path=TRAINING_LOG_PATH)
+
+    # Also output all settings
+    with open(TRAINING_LOG_PATH, "a") as f:
+        f.write(f"\n\nSettings:\n")
+        f.write(f"STAIN: {STAIN}\n")
+        f.write(f"NUM_EPOCHS: {NUM_EPOCHS}\n")
+        f.write(f"FINE ANGLE THRESHOLD: {FINE_ANGLE_THRESHOLD}\n")
+        f.write(f"STARTING LEARNING_RATE: {LEARNING_RATE}\n")
+        f.write(f"ACCUMULATIONS_STEPS: {ACCUMULATIONS_STEPS}\n")
