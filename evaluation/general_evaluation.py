@@ -3,7 +3,6 @@ import os
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from PIL import Image
 import sys
 import torchvision
 
@@ -99,14 +98,13 @@ def get_filenames_based_on_error_percentiles(test_data, true_labels, preds):
     """ Get the filenames of the images that are at the 1st, 50th and 99th percentile of absolute angular differences.
 
     Parameters:
+        test_data (Dataset): Dataset containing the images and masks.
         true_labels (np.ndarray): Array of true labels.
         preds (np.ndarray): Array of predictions.
-        filenames (list): List of image filenames.
 
     Returns:
-        filenames_selected (list): List of filenames of the images that are at the 1st, 50th and 99th percentile of absolute angular differences.
-        true_labels_selected (list): List of true labels of the images that are at the 1st, 50th and 99th percentile of absolute angular differences.
-        preds_selected (list): List of predictions of the images that are at the 1st, 50th and 99th percentile of absolute angular differences. """
+        dataset_selected (list): List of selected dataset items (images, masks, true labels, pos).
+        preds_selected (list): List of selected predictions. """
 
     _, abs_angluar_diff = eval_utils.calculate_error(true_labels, preds)
 
@@ -210,13 +208,12 @@ def det_top10_worst_predictions(test_data, true_labels, preds):
     """ Determine the top 10 worst predictions based on absolute angular differences.
     
     Parameters:
+        test_data (Dataset): Dataset containing the images and masks.
         true_labels (np.ndarray): Array of true labels.
         preds (np.ndarray): Array of predictions.
-        filenames (list): List of image filenames.
     
     Returns:
-        filenames_worst (list): List of filenames of the worst predictions.
-        true_labels_worst (list): List of true labels of the worst predictions.
+        dataset_worst (list): List of the worst dataset items (images, masks, true labels, pos).
         preds_worst (list): List of predictions of the worst predictions.
         errors_worst (list): List of angular differences of the worst predictions. """
 
@@ -238,9 +235,7 @@ def plot_top10_worst_predictions(test_data, true_labels, preds, evaluation_plots
     """ Plot the top 10 worst predictions based on absolute angular differences.
 
     Parameters:
-        image_path (str): Path to the folder containing the images.
-        mask_path (str): Path to the folder containing the masks.
-        filenames (list): List of filenames of the images.
+        test_data (Dataset): Dataset containing the images and masks.
         true_labels (np.ndarray): Array of true labels.
         preds (np.ndarray): Array of predictions.
         evaluation_plots_path (str): Path to the folder where the evaluation plots will be saved.

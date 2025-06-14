@@ -69,6 +69,7 @@ class ImageDataset(Dataset):
             idx (int): Index of the image and label to retrieve.
         Returns:
             img (torch.Tensor): Image tensor.
+            mask (torch.Tensor): Mask tensor.
             angle_vector (torch.Tensor): Angle vector representing the rotation of the image in radians.
             pos (torch.Tensor): Position matrix of the patches. """
 
@@ -110,7 +111,7 @@ class ImageDataset(Dataset):
         Returns:
             img (PIL.Image): Augmented image.
             mask (PIL.Image): Augmented mask.
-            angle (float): Rotation of image and mask. """
+            idx (int): Index of the image in the dataset. The angle is adjusted based on the original label."""
         
         angle = self.labels[idx] # Get the angle from the labels 
 
@@ -203,8 +204,6 @@ def get_filenames_and_labels(images_path, ground_truth_rotations):
     # Load the images and masks for training and validation sets and filter them by size 
     filenames_test = extract_datasets(images_path, filter_by_rotated_size_threshold)
 
-    filenames_test = filenames_test[:10]  # Limit to 1000 images for testing
-
     # Load the labels
     with open(ground_truth_rotations, 'r') as f:
         label_dict = json.load(f)
@@ -276,10 +275,8 @@ def apply_model_on_test_set(model, test_loader, device):
         device (torch.device): Device to run the model on (CPU or GPU).
 
     Returns:
-        all_labels (np.ndarray): Array of labels.
-        all_preds (np.ndarray): Array of predictions.
-         
-    Note: This function is currently set to only process 5 batches for testing. """
+        true_labels (np.ndarray): Array of labels.
+        preds (np.ndarray): Array of predictions. """
     
     model.eval()
     true_labels = []
