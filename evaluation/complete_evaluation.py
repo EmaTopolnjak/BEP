@@ -2,14 +2,11 @@ from torch.utils.data import DataLoader, ConcatDataset
 import os
 import torch
 import numpy as np
-import matplotlib.pyplot as plt
-from PIL import Image
 import sys
 
 # Codes from other files
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from model_training.model_training_loop import initialize_model
-from preprocessing.rotate_images_correctly import rotate_image_with_correct_padding, get_centroid_of_mask
 import evaluation.evaluation_utils as eval_utils
 import evaluation.general_evaluation as general_eval
 import evaluation.itterative_prediction as itterative_pred
