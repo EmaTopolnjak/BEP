@@ -241,6 +241,12 @@ def angluar_error_deg(true_angle_deg, pred_angle_deg):
     Returns:
         angular_diff (float): Angular difference wrapped to the range [-180, 180] degrees. """
 
+    # Ensure tensors are on CPU and converted to NumPy
+    if torch.is_tensor(true_angle_deg):
+        true_angle_deg = true_angle_deg.cpu().numpy()
+    if torch.is_tensor(pred_angle_deg):
+        pred_angle_deg = pred_angle_deg.cpu().numpy()
+        
     diff = true_angle_deg - pred_angle_deg  # Compute raw difference
     angular_diff = np.remainder(diff + 180, 360) - 180  # Wrap difference to [-180, 180]
     return angular_diff

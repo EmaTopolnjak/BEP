@@ -8,9 +8,6 @@ A Vision Transformer (ViT) adapted for angle regression to predict object orient
 - [Configuration](#Configuration)
 - [Usage](#usage)
 - [Dataset](#dataset)
-- [Training](#training)
-- [Evaluation](#evaluation)
-
 
 ## Overview
 
@@ -57,7 +54,7 @@ BEP/
 │   ├── complete_evaluation.py              # Runs complete evaluation across all test cases
 │   ├── general_evaluation.py               # If evaluation of the model based on one pass through the model is preferred
 │   └── itterative_prediction.py            # If evaluation of the model based on itterative predictions is preferred 
-├── extra_codes                             # Extra codes
+├── extra_codes/                             # Extra codes
 │   └── combine_annotations_to_one_file.py  # Merges multiple manual rotation files into a single one (if applicable)
 ├── config.py                               # Configuration file (not yet created, but required to run the project)
 ├── requirements.txt                        # Lists Python dependencies for the project
@@ -75,8 +72,8 @@ The `config.py` file contains all the parameters needed to train and evaluate th
 
 ### Manual rotation files ###
 # If multiple files need to merged with the 'combine_annotations_to_one_file.py' file, list the files here
-HE_ground_truth_rotations_seperate = ['../Data/image_rotations_HE_pt1.json', '../Data/image_rotations_HE_pt2.json']
-IHC_ground_truth_rotations_seperate = ['../Data/image_rotations_IHC_pt1.json', '../Data/image_rotations_IHC_pt2.json']
+HE_ground_truth_rotations_seperate = ['../Data/manual_rotations/image_rotations_HE_pt1.json', '../Data/image_rotations_HE_pt2.json']
+IHC_ground_truth_rotations_seperate = ['../Data/manual_rotations/image_rotations_IHC_pt1.json', '../Data/image_rotations_IHC_pt2.json']
 
 # The final manual rotation filepaths
 HE_ground_truth_rotations = '../Data/manual_rotations/image_rotations_HE.json'
@@ -89,7 +86,7 @@ IHC_crops_masked = '../Data/images/IHC_crops_masked'
 HE_masks = '../Data/annotations/HE_crops'
 IHC_masks = '../Data/annotations/IHC_crops'
 
-# Image and mask paths after they are padded minimally
+# Image and mask paths after they are padded minimally - these images are used for input in the model
 HE_crops_masked_padded = '../Data/images/HE_crops_masked_padded'
 IHC_crops_masked_padded = '../Data/images/IHC_crops_masked_padded'
 HE_masks_padded = '../Data/annotations/HE_crops_padded'
@@ -129,11 +126,79 @@ random_seed = 42
 ```
 
 ## Usage
-After installing the necessary packages, you can run the project as follows:
+After installing the necessary packages and making a 'config.py' file, you can run the project as follows:
 
-### Data preprocessing
+### 1. Data Preparation (preprocessing directory)
+#### 1.1. Open and run pad_images_minimally.py 
+This script processed the individual tissue sections from the dataset and saves the padded images and masks such that they are suitable for model input. The tissue sections that do not have a suitable rotation or are of poor quality are skipped and thus not used for model training. 
+
+#### 1.2 OPTIONAL: Open and run data_selection_description.py
+If you want to see the evaluation of how many tissue sections are left after this preparation steps, this script can be run.
+
+#### 1.3 OPTIONAL: Open and run rotate_images_correctly.py
+To see the results of rotating the images manually, this script can be run. The tissue sections and their masks are saved into seperate folders.
+
+#### 1.4 Open and run split_dataset.py
+This scipt split the dataset on patient-level into a training, validation and test set after non-usable tissue sections are removed. The directories with the data are restructured into a train, val and test subdirectories. 
+
+### 2. Model Training (model_training directory)
+#### 2.1 Open and run model_training_loop
+The model can now be trained. Every 10 epochs, a model is saved to log intermediate results. To choose specific training settings, the 'config.py' file can be adjusted.
+
+### 3. Model Evaluation (evaluation directory)
+#### 3.1 Open and run complete_evaluation.py
+The model is evaluated across 4 combinations, based on two factors:
+a. Rotation:
+- Original rotation: The original rotation of the tissue sections is used to provide the evaluation that was present in the dataset. 
+- Uniformly rotated: The tissue sections are randomly rotated to remove possible biased towards certain rotations present in the dataset.
+b. Number of passes through model:
+- One pass through the model: The tissue sections are passed once through the model to evaluate their direct orientation estimation.
+- Multiple passes through the model: The tissue sections are passed multiple times through the model and updated in between before the output is evaluated, to evaluate itterative refinement. 
+
+The models are evaluated based on median squared error, interquarile range of mean squared error, accuracy within 5 deg and accuracy within 10 deg. Moreover, the following plots are created: histogram of angular differences, histogram of absolute angular differences, true labels vs predictions, error bias and plots visualizing the predictions. 
 
 
+## Dataset
+The models are trained on H&E- and IHC-stained histology images of skin tissue. Each image has an associated mask and manual rotation label.
+
+Folder structure if the example 'config.py' file is used (an alternative structure can be used, but the 'config.py' file needs to be adjusted accordingly):
+```bash
+Data/
+├── images/                          
+│   ├── HE_crops_masked/                            # Original images of individual tissue sections
+│   ├── HE_crops_masked_padded/                     # Images after preparing them for model input - generated after running 'pad_images_minimally.py'
+│   │   ├── train
+│   │   ├── val
+│   │   └── test
+│   ├── IHC_crops_masked/                           # Original images of individual tissue sections
+│   └── IHC_crops_masked_padded/                    # Images after preparing them for model input - generated after running 'pad_images_minimally.py'
+│   │   ├── train
+│   │   ├── val
+│   │   └── test
+├── annotations/                         
+│   ├── HE_crops/                                   # Original masks of individual tissue sections
+│   ├── HE_crops_padded/                            # Masks after preparing them for model input - generated after running 'pad_images_minimally.py'
+│   │   ├── train
+│   │   ├── val
+│   │   └── test
+│   ├── IHC_crops/                                  # Original masks of individual tissue sections 
+│   └── IHC_crops_padded/                           # Masks after preparing them for model input - generated after running 'pad_images_minimally.py'
+│   │   ├── train
+│   │   ├── val
+│   │   └── test
+├── manual_rotations/                               
+│   ├── image_rotations_HE.json                     # Manutal rotations of HE-stained images
+│   └── image_rotations_IHC.json                    # Manutal rotations of IHC-stained images
+├── models/                                     
+│   ├── vit_wee_patch16_reg1_gap_256.sbb_in1k.pth   # File with pretrained model weights
+│   ├── model.pth                                   # File with trained model weights - generated after running 'model_training_loop.py'
+│   ├── training_plot.png                           # Shows the training process - generated after running 'model_training_loop.py'
+│   ├── training_log.txt                            # Logs the training process - generated during running 'model_training_loop.py'
+│   └── eval/                                       # Folder where evaluation of the model is saved
+└── splitting_data/
+│   ├── patient_mapping.json                        # File that maps image IDs to patient IDs
+│   └── assigned_split.json                         # File that maps image IDs to subset (train, val or test) - generated after running 'split_dataset.py'
+```
 
 ## Contributors
 Ema Topolnjak <br>

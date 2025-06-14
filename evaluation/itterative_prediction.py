@@ -178,6 +178,8 @@ def pass_dataset_through_model_multiple_times(model, test_data, test_loader, dev
         if idx == 0: # Plot results for the first image
             plot_results_through_iterations(img, mask, images, masks, angular_errors, true_angle_deg, evaluation_plots_path, max_iters=5)
 
+    final_preds = [t.cpu().numpy() for t in final_preds]
+    true_labels = [t.cpu().numpy() for t in true_labels]
     final_preds = np.array(final_preds)
     true_labels = np.array(true_labels)
 

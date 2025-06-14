@@ -167,39 +167,49 @@ def rotate_image_with_correct_padding(image, mask, angle, bg_color=(245, 245, 24
 
 if __name__ == "__main__":
 
-    # Load the configuration
-    rotation_info_path = config.HE_ground_truth_rotations
-    original_images_path = config.HE_crops_masked
-    original_masks_path = config.HE_masks
-    rotated_images_path = config.HE_crops_masked_rotated
-    rotated_masks_path = config.HE_masks_rotated
+    
+    stains = ['HE', 'IHC']
+    for stain in stains:
+        # Load the configuration
+        if stain == 'HE':
+            rotation_info_path = config.HE_ground_truth_rotations
+            original_images_path = config.HE_crops_masked
+            original_masks_path = config.HE_masks
+            rotated_images_path = config.HE_crops_masked_rotated
+            rotated_masks_path = config.HE_masks_rotated
+        if stain == 'IHC':
+            rotation_info_path = config.IHC_ground_truth_rotations
+            original_images_path = config.IHC_crops_masked
+            original_masks_path = config.IHC_masks
+            rotated_images_path = config.IHC_crops_masked_rotated
+            rotated_masks_path = config.IHC_masks_rotated
 
-    # Load the rotation info
-    with open(rotation_info_path, 'r') as f:
-        rotation_info = json.load(f)
+        # Load the rotation info
+        with open(rotation_info_path, 'r') as f:
+            rotation_info = json.load(f)
 
-    os.makedirs(rotated_images_path, exist_ok=True) # Create the output directory if it doesn't exist
+        os.makedirs(rotated_images_path, exist_ok=True) # Create the output directory if it doesn't exist
 
-    for filename, angle in rotation_info.items(): # Iterate through the dictionary with rotation info
-        # Construct the full path to the input and output images
-        input_path_image = os.path.join(original_images_path, filename)
-        input_path_mask = os.path.join(original_masks_path, filename)
-        output_path_image = os.path.join(rotated_images_path, filename)
-        output_path_mask = os.path.join(rotated_masks_path, filename)
+        for filename, angle in rotation_info.items(): # Iterate through the dictionary with rotation info
+            # Construct the full path to the input and output images
+            input_path_image = os.path.join(original_images_path, filename)
+            input_path_mask = os.path.join(original_masks_path, filename)
+            output_path_image = os.path.join(rotated_images_path, filename)
+            output_path_mask = os.path.join(rotated_masks_path, filename)
 
-        # Skip images if marked as "skipped"
-        if isinstance(angle, dict) and "skipped" in angle:
-            print(f"Skipping {filename} due to 'skipped' flag.") 
-            continue
-        
-        # Rotate the image and save it to the output path
-        try:
-            img = Image.open(input_path_image)
-            mask = Image.open(input_path_mask)
-            output_image, output_mask = rotate_image_with_correct_padding(img, mask, float(angle))
-            output_image.save(output_path_image)
-            output_mask.save(output_path_mask)  
+            # Skip images if marked as "skipped"
+            if isinstance(angle, dict) and "skipped" in angle:
+                print(f"Skipping {filename} due to 'skipped' flag.") 
+                continue
+            
+            # Rotate the image and save it to the output path
+            try:
+                img = Image.open(input_path_image)
+                mask = Image.open(input_path_mask)
+                output_image, output_mask = rotate_image_with_correct_padding(img, mask, float(angle))
+                output_image.save(output_path_image)
+                output_mask.save(output_path_mask)  
 
-        except Exception as e:
-            print(f"Error processing {filename}: {e}")
-            continue
+            except Exception as e:
+                print(f"Error processing {filename}: {e}")
+                continue
