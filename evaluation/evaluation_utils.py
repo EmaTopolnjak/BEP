@@ -91,11 +91,12 @@ class ImageDataset(Dataset):
 
         # Apply transformations normalization to image
         img = torchvision.transforms.functional.to_tensor(img)  
+        mask = torchvision.transforms.functional.to_tensor(mask)  
 
         # Get the position of each patch in the image
         pos = self.get_pos(img, mask)      
 
-        return img, angle_vector, pos
+        return img, mask, angle_vector, pos
     
 
     def rotate_image(self, img, mask, idx):
@@ -134,6 +135,7 @@ class ImageDataset(Dataset):
             pos (torch.Tensor): Position matrix of the patches. """
         
         # Calculate centroid and convert to pixel value
+        mask = mask.squeeze(0)  # Remove the channel dimension if present
         centroid = get_centroid_of_mask(mask) # Get the centroid of the mask
         cx = math.floor(centroid[0])
         cy = math.floor(centroid[1])
@@ -201,6 +203,8 @@ def get_filenames_and_labels(images_path, ground_truth_rotations):
     # Load the images and masks for training and validation sets and filter them by size 
     filenames_test = extract_datasets(images_path, filter_by_rotated_size_threshold)
 
+    filenames_test = filenames_test[:10]  # Limit to 1000 images for testing
+
     # Load the labels
     with open(ground_truth_rotations, 'r') as f:
         label_dict = json.load(f)
@@ -228,23 +232,15 @@ def vector_to_angle_deg(v):
 
 
 
-def angle_to_vector(angle_deg):
-    """ Convert an angle in degrees to a 2D vector.
+def angluar_error_deg(true_angle_deg, pred_angle_deg):
+    """ Calculate the angular error between true and predicted angle. 
     
     Parameters:
-        angle_deg (float or torch.Tensor): Angle in degrees.
-        
+        true_angle_deg (float): True angle in degrees.
+        pred_angle_deg (float): Predicted angle in degrees.
+    
     Returns:
-        torch.Tensor: A 2D vector representing the angle. """
-
-    angle_rad = angle_deg * math.pi / 180.0
-    angle_vec = torch.tensor([math.cos(angle_rad), math.sin(angle_rad)], dtype=torch.float32)
-    return angle_vec
-
-
-
-def angluar_error_deg(true_angle_deg, pred_angle_deg):
-    """ Calculate the angular error between true and predicted angles. """
+        angular_diff (float): Angular difference wrapped to the range [-180, 180] degrees. """
 
     diff = true_angle_deg - pred_angle_deg  # Compute raw difference
     angular_diff = np.remainder(diff + 180, 360) - 180  # Wrap difference to [-180, 180]
@@ -290,7 +286,7 @@ def apply_model_on_test_set(model, test_loader, device):
     preds = []
 
     with torch.no_grad():
-        for image, label, pos in test_loader:           
+        for image, _, label, pos in test_loader:        
             image = image.to(device)
             label = label.to(device).float().view(-1)
             

@@ -111,6 +111,9 @@ def get_filenames_and_labels(images_path, ground_truth_rotations):
     # Load the images and masks for training and validation sets and filter them by size 
     filenames_train, filenames_val = extract_datasets(images_path, filter_by_rotated_size_threshold)
 
+    filenames_train = filenames_train[:2]
+    filenames_val = filenames_val[:2]
+
     # Load the labels
     with open(ground_truth_rotations, 'r') as f:
         label_dict = json.load(f)
@@ -387,7 +390,7 @@ def append_losses_to_file(filename, epoch, train_loss, val_loss, learning_rate):
 
 
 
-def train_model(model, train_dataset, train_loader, val_loader, device, learning_rate, epochs, accumulation_steps, save_training_plot_path, trained_model_path, training_log_path):
+def train_model(model, stain, train_dataset, train_loader, val_loader, device, learning_rate, epochs, accumulation_steps, save_training_plot_path, trained_model_path, training_log_path):
     """ Train the model on the training set and validate on the validation set. The loss is calculated using circular mean squared error.
     The model is trained using gradient accumulation to reduce memory usage. The training and validation loss are plotted and saved. The 
     trained model is saved to a file.
@@ -418,8 +421,15 @@ def train_model(model, train_dataset, train_loader, val_loader, device, learning
 
     for epoch in range(epochs):
         # print(f"\nEpoch {epoch + 1}/{epochs}")
-        train_dataset.set_epoch(epoch)
-        train_dataset.update_transform()
+        if stain == 'HE+IHC':
+            # If HE+IHC, set the epoch for each dataset separately
+            for dataset in train_dataset:
+                dataset.set_epoch(epoch)
+                dataset.update_transform()
+        else:
+            # For HE or IHC, set the epoch for the single dataset
+            train_dataset.set_epoch(epoch)
+            train_dataset.update_transform()  
 
         model.train()
         optimizer.zero_grad()
@@ -563,14 +573,17 @@ if __name__ == "__main__":
         val_data_IHC = ImageDataset(image_path=images_path_IHC, mask_path=masks_path_IHC, subset='val', filenames=filenames_val_IHC, labels=labels_val_IHC, perform_transforms=False)
 
         # Combine
-        train_data = ConcatDataset([train_data_HE, train_data_IHC])
+        train_data = [train_data_HE, train_data_IHC]
         val_data = ConcatDataset([val_data_HE, val_data_IHC])
 
     else:
         raise ValueError("Invalid stain type. Choose 'HE', 'IHC' or 'HE+IHC'.")  
 
     # Create dataloader for training and validation set
-    train_loader = DataLoader(train_data, batch_size=1, shuffle=True, worker_init_fn=seed_worker, generator=g)
+    if STAIN == 'HE+IHC':
+        train_loader = DataLoader(ConcatDataset(train_data), batch_size=1, shuffle=True, worker_init_fn=seed_worker, generator=g)
+    else:
+        train_loader = DataLoader(train_data, batch_size=1, shuffle=True, worker_init_fn=seed_worker, generator=g)
     val_loader = DataLoader(val_data, batch_size=1, shuffle=False, worker_init_fn=seed_worker, generator=g) 
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -580,7 +593,7 @@ if __name__ == "__main__":
     model = model.to(device)
     
     # Model training
-    optimized_model = train_model(model, train_data, train_loader, val_loader, device, learning_rate=LEARNING_RATE, epochs=NUM_EPOCHS, accumulation_steps=ACCUMULATIONS_STEPS, save_training_plot_path=TRAINING_PLOT_PATH, trained_model_path=TRAINED_MODEL_PATH, training_log_path=TRAINING_LOG_PATH)
+    optimized_model = train_model(model, STAIN, train_data, train_loader, val_loader, device, learning_rate=LEARNING_RATE, epochs=NUM_EPOCHS, accumulation_steps=ACCUMULATIONS_STEPS, save_training_plot_path=TRAINING_PLOT_PATH, trained_model_path=TRAINED_MODEL_PATH, training_log_path=TRAINING_LOG_PATH)
 
     # Also output all settings
     with open(TRAINING_LOG_PATH, "a") as f:
