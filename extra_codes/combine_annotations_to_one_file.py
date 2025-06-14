@@ -1,4 +1,8 @@
 import json
+import sys
+from pathlib import Path
+# To import the config file from the parent directory
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 import config
 
 def combine_information_from_json_files(file_paths, output_path):

@@ -24,16 +24,17 @@ cd BEP
 ```
 
 ###  2. Create a virtual environment
-To create a new environment, run the following: 
+To create a new (pip) environment, run the following: 
 ```bash
-conda create --name <myenv>
-conda activate <myenv>
+python -m venv venv_name
+venv_name\Scripts\activate    
+
 ```
 
 ### 3. Install dependencies
 You can install the required packages directly in your environment by running the following command:
 ```bash
-conda install --file requirements.txt
+pip install -r requirements.txt
 ```
 
 ## Project Structure
@@ -126,7 +127,7 @@ random_seed = 42
 ```
 
 ## Usage
-After installing the necessary packages and making a 'config.py' file, you can run the project as follows:
+After installing the necessary packages and making a `config.py` file, you can run the project as follows:
 
 ### 1. Data Preparation (preprocessing directory)
 #### 1.1. Open and run pad_images_minimally.py 
@@ -143,14 +144,16 @@ This scipt split the dataset on patient-level into a training, validation and te
 
 ### 2. Model Training (model_training directory)
 #### 2.1 Open and run model_training_loop
-The model can now be trained. Every 10 epochs, a model is saved to log intermediate results. To choose specific training settings, the 'config.py' file can be adjusted.
+The model can now be trained. Every 10 epochs, a model is saved to log intermediate results. To choose specific training settings, the `config.py` file can be adjusted.
 
 ### 3. Model Evaluation (evaluation directory)
 #### 3.1 Open and run complete_evaluation.py
-The model is evaluated across 4 combinations, based on two factors:
+The model is evaluated across 4 combinations, based on two factors: 
+
 a. Rotation:
 - Original rotation: The original rotation of the tissue sections is used to provide the evaluation that was present in the dataset. 
 - Uniformly rotated: The tissue sections are randomly rotated to remove possible biased towards certain rotations present in the dataset.
+
 b. Number of passes through model:
 - One pass through the model: The tissue sections are passed once through the model to evaluate their direct orientation estimation.
 - Multiple passes through the model: The tissue sections are passed multiple times through the model and updated in between before the output is evaluated, to evaluate itterative refinement. 
@@ -161,31 +164,31 @@ The models are evaluated based on median squared error, interquarile range of me
 ## Dataset
 The models are trained on H&E- and IHC-stained histology images of skin tissue. Each image has an associated mask and manual rotation label.
 
-Folder structure if the example 'config.py' file is used (an alternative structure can be used, but the 'config.py' file needs to be adjusted accordingly):
+Folder structure if the example `config.py` file is used (an alternative structure can be used, but the `config.py` file needs to be adjusted accordingly):
 ```bash
 Data/
 ├── images/                          
 │   ├── HE_crops_masked/                            # Original images of individual tissue sections
 │   ├── HE_crops_masked_padded/                     # Images after preparing them for model input - generated after running 'pad_images_minimally.py'
-│   │   ├── train
-│   │   ├── val
-│   │   └── test
+│   │   ├── train/
+│   │   ├── val/
+│   │   └── test/
 │   ├── IHC_crops_masked/                           # Original images of individual tissue sections
 │   └── IHC_crops_masked_padded/                    # Images after preparing them for model input - generated after running 'pad_images_minimally.py'
-│   │   ├── train
-│   │   ├── val
-│   │   └── test
+│   │   ├── train/
+│   │   ├── val/
+│   │   └── test/
 ├── annotations/                         
 │   ├── HE_crops/                                   # Original masks of individual tissue sections
 │   ├── HE_crops_padded/                            # Masks after preparing them for model input - generated after running 'pad_images_minimally.py'
-│   │   ├── train
-│   │   ├── val
-│   │   └── test
+│   │   ├── train/
+│   │   ├── val/
+│   │   └── test/
 │   ├── IHC_crops/                                  # Original masks of individual tissue sections 
 │   └── IHC_crops_padded/                           # Masks after preparing them for model input - generated after running 'pad_images_minimally.py'
-│   │   ├── train
-│   │   ├── val
-│   │   └── test
+│   │   ├── train/
+│   │   ├── val/
+│   │   └── test/
 ├── manual_rotations/                               
 │   ├── image_rotations_HE.json                     # Manutal rotations of HE-stained images
 │   └── image_rotations_IHC.json                    # Manutal rotations of IHC-stained images
@@ -196,8 +199,8 @@ Data/
 │   ├── training_log.txt                            # Logs the training process - generated during running 'model_training_loop.py'
 │   └── eval/                                       # Folder where evaluation of the model is saved
 └── splitting_data/
-│   ├── patient_mapping.json                        # File that maps image IDs to patient IDs
-│   └── assigned_split.json                         # File that maps image IDs to subset (train, val or test) - generated after running 'split_dataset.py'
+    ├── patient_mapping.json                        # File that maps image IDs to patient IDs
+    └── assigned_split.json                         # File that maps image IDs to subset (train, val or test) - generated after running 'split_dataset.py'
 ```
 
 ## Contributors

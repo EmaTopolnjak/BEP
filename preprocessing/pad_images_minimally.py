@@ -3,9 +3,6 @@
 import os
 import json
 from PIL import Image
-import numpy as np
-import math
-
 import sys
 from pathlib import Path
 # Add parent directory to sys.path
