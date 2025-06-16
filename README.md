@@ -55,7 +55,8 @@ BEP/
 │   ├── complete_evaluation.py              # Runs complete evaluation across all test cases
 │   ├── general_evaluation.py               # If evaluation of the model based on one pass through the model is preferred
 │   └── itterative_prediction.py            # If evaluation of the model based on itterative predictions is preferred 
-├── extra_codes/                             # Extra codes
+├── extra_codes/                            # Extra codes
+│   ├── observer_variability.py             # Calculates the inter-oberver variability between 3 observers and intra-oberver variability between 2 obervations
 │   └── combine_annotations_to_one_file.py  # Merges multiple manual rotation files into a single one (if applicable)
 ├── config.py                               # Configuration file (not yet created, but required to run the project)
 ├── requirements.txt                        # Lists Python dependencies for the project
@@ -121,6 +122,15 @@ training_log_path = '../Data/models/training_log.txt'
 evaluation_plots_path = '../Data/models/eval/'
 max_iters = 5 # After how many iterations through the model, you want to give an evaluation of the prediction
 uniform_distribution = True # If True, the test images are randomly rotated to create a uniform distribution across all possible rotations
+ 
+### Observer variability ###
+observer_1_1_HE = '../Data/observer_variability/obs1_1_HE.json'
+observer_1_2_HE = '../Data/observer_variability/obs1_2_HE.json'
+observer_1_1_IHC = '../Data/observer_variability/obs1_1_IHC.json'
+observer_1_2_IHC = '../Data/observer_variability/obs1_2_IHC.json'
+observer_2_HE = '../Data/observer_variability/obs2_HE.json'
+observer_2_IHC = '../Data/observer_variability/obs2_IHC.json'
+observer_variability_path = '../Data/observer_variability/evaluation/'
 
 ### Other configurations ###
 random_seed = 42
@@ -143,7 +153,7 @@ To see the results of rotating the images manually, this script can be run. The 
 This scipt split the dataset on patient-level into a training, validation and test set after non-usable tissue sections are removed. The directories with the data are restructured into a train, val and test subdirectories. 
 
 ### 2. Model Training (model_training directory)
-#### 2.1 Open and run model_training_loop
+#### 2.1 Open and run model_training_loop.py
 The model can now be trained. Every 10 epochs, a model is saved to log intermediate results. To choose specific training settings, the `config.py` file can be adjusted.
 
 ### 3. Model Evaluation (evaluation directory)
@@ -198,9 +208,10 @@ Data/
 │   ├── training_plot.png                           # Shows the training process - generated after running 'model_training_loop.py'
 │   ├── training_log.txt                            # Logs the training process - generated during running 'model_training_loop.py'
 │   └── eval/                                       # Folder where evaluation of the model is saved
-└── splitting_data/
-    ├── patient_mapping.json                        # File that maps image IDs to patient IDs
-    └── assigned_split.json                         # File that maps image IDs to subset (train, val or test) - generated after running 'split_dataset.py'
+├── splitting_data/
+│   ├── patient_mapping.json                        # File that maps image IDs to patient IDs
+│   └── assigned_split.json                         # File that maps image IDs to subset (train, val or test) - generated after running 'split_dataset.py'
+└── observer_variability/                           # Folder containing the files to evaluate inter- and intra-observer variability
 ```
 
 ## Contributors
