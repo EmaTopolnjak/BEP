@@ -109,8 +109,8 @@ def describe_angular_series(df):
     diff = df['abs_diffs']
     print(f"Median: {diff.median():.2f}°")
     print(f"IQR: {(np.percentile(diff, 75) - np.percentile(diff, 25)):.2f}°, 75th percentile: {np.percentile(diff, 75):.2f}°, 25th percentile: {np.percentile(df, 25):.2f}°")
-    print(f"Accuracy ≤ 5°: {(diff <= 5).mean()*100:.1f}%")
-    print(f"Accuracy ≤ 10°: {(diff <= 10).mean()*100:.1f}%")
+    print(f"Agreement ≤ 5°: {(diff <= 5).mean()*100:.1f}%")
+    print(f"Agreement ≤ 10°: {(diff <= 10).mean()*100:.1f}%")
 
 
 

@@ -3,18 +3,28 @@ import os
 import torch
 import numpy as np
 import sys
+import random
 
 # Codes from other files
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from model_training.model_training_loop import initialize_model
 import evaluation.evaluation_utils as eval_utils
 import evaluation.general_evaluation as general_eval
-import evaluation.itterative_prediction as itterative_pred
+import evaluation.iterative_prediction as iterative_pred
 
 from pathlib import Path
 # Add parent directory to sys.path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 import config
+
+
+def seed_worker(worker_id):
+    """ Set the random seed for each worker to ensure reproducibility."""
+    worker_seed = RANDOM_SEED + worker_id
+    random.seed(worker_seed)
+    np.random.seed(worker_seed)
+    torch.manual_seed(worker_seed)
+
 
 
 if __name__ == "__main__":
@@ -25,11 +35,18 @@ if __name__ == "__main__":
     TRAINED_MODEL_PATH = config.trained_model_path
     EVALUATION_PLOTS_PATH = config.evaluation_plots_path
     STAIN = config.stain  # 'HE' or 'IHC'
-    MAX_ITERS = config.max_iters  # Number of iterations for itterative prediction
+    MAX_ITERS = config.max_iters  # Number of iterations for iterative prediction
     
     # Set the random seed for reproducibility
+    random.seed(RANDOM_SEED)
     torch.manual_seed(RANDOM_SEED)
     np.random.seed(RANDOM_SEED)
+    torch.cuda.manual_seed(RANDOM_SEED)
+    torch.cuda.manual_seed_all(RANDOM_SEED)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    g = torch.Generator()
+    g.manual_seed(RANDOM_SEED)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -75,21 +92,24 @@ if __name__ == "__main__":
             test_data = ConcatDataset([test_data_HE, test_data_IHC])
         
         # Create dataloader
-        test_loader = DataLoader(test_data, batch_size=1, shuffle=False) 
+        test_loader = DataLoader(test_data, batch_size=1, shuffle=False, worker_init_fn=seed_worker, generator=g) 
 
 
-        for ITTERATIVE in [False, True]:
+        for ITERATIVE in [False, True]:
             distribution_type = 'uniform' if UNIFORM_DISTRIBUTION else 'non_uniform'
-            itterative_type = 'itterative' if ITTERATIVE else 'non_itterative'
-            EVALUATION_PLOTS_PATH_CURRENT = os.path.join(EVALUATION_PLOTS_PATH, f"{distribution_type}_{itterative_type}")
+            iterative_type = 'iterative' if ITERATIVE else 'non_iterative'
+            EVALUATION_PLOTS_PATH_CURRENT = os.path.join(EVALUATION_PLOTS_PATH, f"{distribution_type}_{iterative_type}")
             os.makedirs(EVALUATION_PLOTS_PATH_CURRENT, exist_ok=True)
 
-            if ITTERATIVE:
+            if ITERATIVE:
                 print(f"\nEvaluating ITTERATIVE application of model with {'UNIFORM' if UNIFORM_DISTRIBUTION else 'NON-UNIFORM'} distribution of angles in test set...")
-                test_pred, test_labels = itterative_pred.pass_dataset_through_model_multiple_times(model, test_data, test_loader, device, EVALUATION_PLOTS_PATH_CURRENT, max_iters=MAX_ITERS)            
+                test_pred, test_labels = iterative_pred.pass_dataset_through_model_multiple_times(model, test_data, test_loader, device, EVALUATION_PLOTS_PATH_CURRENT, max_iters=MAX_ITERS)
+                np.savez(f'{EVALUATION_PLOTS_PATH_CURRENT}/arrays.npz', array1=test_pred, array2=test_labels)                 
             else:
                 print(f"\nEvaluating ONE TIME application of model with {'UNIFORM' if UNIFORM_DISTRIBUTION else 'NON-UNIFORM'} distribution of angles in test set...")
                 test_labels, test_pred = eval_utils.apply_model_on_test_set(model, test_loader, device) 
+                np.savez(f'{EVALUATION_PLOTS_PATH_CURRENT}/arrays.npz', array1=test_pred, array2=test_labels)
+
 
             eval_utils.get_error_metrics(test_labels, test_pred) # Get error metrics
             general_eval.plot_errors(test_labels, test_pred, EVALUATION_PLOTS_PATH_CURRENT) # Visualize errors

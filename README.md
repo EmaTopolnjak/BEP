@@ -28,7 +28,6 @@ To create a new (pip) environment, run the following:
 ```bash
 python -m venv venv_name
 venv_name\Scripts\activate    
-
 ```
 
 ### 3. Install dependencies
@@ -54,7 +53,7 @@ BEP/
 │   ├── evaluation_utils.py                 # Helper functions for evaluation
 │   ├── complete_evaluation.py              # Runs complete evaluation across all test cases
 │   ├── general_evaluation.py               # If evaluation of the model based on one pass through the model is preferred
-│   └── itterative_prediction.py            # If evaluation of the model based on itterative predictions is preferred 
+│   └── iterative_prediction.py            # If evaluation of the model based on iterative predictions is preferred 
 ├── extra_codes/                            # Extra codes
 │   ├── observer_variability.py             # Calculates the inter-oberver variability between 3 observers and intra-oberver variability between 2 obervations
 │   └── combine_annotations_to_one_file.py  # Merges multiple manual rotation files into a single one (if applicable)
@@ -130,6 +129,8 @@ observer_1_1_IHC = '../Data/observer_variability/obs1_1_IHC.json'
 observer_1_2_IHC = '../Data/observer_variability/obs1_2_IHC.json'
 observer_2_HE = '../Data/observer_variability/obs2_HE.json'
 observer_2_IHC = '../Data/observer_variability/obs2_IHC.json'
+observer_3_HE = '../Data/observer_variability/obs3_HE.json'
+observer_3_IHC = '../Data/observer_variability/obs3_IHC.json'
 observer_variability_path = '../Data/observer_variability/evaluation/'
 
 ### Other configurations ###
@@ -166,7 +167,7 @@ a. Rotation:
 
 b. Number of passes through model:
 - One pass through the model: The tissue sections are passed once through the model to evaluate their direct orientation estimation.
-- Multiple passes through the model: The tissue sections are passed multiple times through the model and updated in between before the output is evaluated, to evaluate itterative refinement. 
+- Multiple passes through the model: The tissue sections are passed multiple times through the model and updated in between before the output is evaluated, to evaluate iterative refinement. 
 
 The models are evaluated based on median squared error, interquarile range of mean squared error, accuracy within 5 deg and accuracy within 10 deg. Moreover, the following plots are created: histogram of angular differences, histogram of absolute angular differences, true labels vs predictions, error bias and plots visualizing the predictions. 
 

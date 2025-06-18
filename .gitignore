@@ -6,3 +6,4 @@
 /preprocessing/__pycache__/
 /model_training/__pycache__/
 /evaluation/__pycache__/
+/evaluation/statistical_testing.py

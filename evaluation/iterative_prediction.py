@@ -6,6 +6,7 @@ import torch
 from torch.utils.data import DataLoader, ConcatDataset
 import matplotlib.pyplot as plt
 import torchvision
+import random
 
 # Codes from other folders
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -16,6 +17,15 @@ import evaluation.evaluation_utils as eval_utils
 # To import the config file from the parent directory
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 import config
+
+
+
+def seed_worker(worker_id):
+    """ Set the random seed for each worker to ensure reproducibility."""
+    worker_seed = RANDOM_SEED + worker_id
+    random.seed(worker_seed)
+    np.random.seed(worker_seed)
+    torch.manual_seed(worker_seed)
 
 
 
@@ -140,7 +150,7 @@ def plot_results_through_iterations(img, mask, images, masks, angular_errors, tr
             label, ha='center', va='bottom', fontsize=12)
     
     plt.tight_layout()
-    path = evaluation_plots_path + '/example_itterative_pred.pdf'
+    path = evaluation_plots_path + '/example_iterative_pred.pdf'
     plt.savefig(path)
     # plt.show()
 
@@ -199,8 +209,15 @@ if __name__ == "__main__":
     EVALUATION_PLOTS_PATH = config.evaluation_plots_path
     
     # Set the random seed for reproducibility
+    random.seed(RANDOM_SEED)
     torch.manual_seed(RANDOM_SEED)
     np.random.seed(RANDOM_SEED)
+    torch.cuda.manual_seed(RANDOM_SEED)
+    torch.cuda.manual_seed_all(RANDOM_SEED)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    g = torch.Generator()
+    g.manual_seed(RANDOM_SEED)
 
     # Load the images, masks and corresponding rotations
     if STAIN == 'HE':
@@ -236,7 +253,7 @@ if __name__ == "__main__":
         test_data = ConcatDataset([test_data_HE, test_data_IHC])
         
     # Create dataloader
-    test_loader = DataLoader(test_data, batch_size=1, shuffle=False) 
+    test_loader = DataLoader(test_data, batch_size=1, shuffle=False, worker_init_fn=seed_worker, generator=g) 
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
