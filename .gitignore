@@ -7,3 +7,5 @@
 /model_training/__pycache__/
 /evaluation/__pycache__/
 /evaluation/statistical_testing.py
+/evaluation/results_different_stains.py
+/evaluation/figuren_aanpassen.py

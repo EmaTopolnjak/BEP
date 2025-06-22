@@ -172,7 +172,7 @@ def extract_datasets(img_path, filter_large_images):
 
     results = {}
 
-    for subset in ['val']:
+    for subset in ['test']:
         img_dir  = os.path.join(img_path, subset)
         filenames = sorted([fname for fname in os.listdir(img_dir) if fname.lower().endswith(('.jpg', '.jpeg', '.png'))])
 
@@ -186,7 +186,7 @@ def extract_datasets(img_path, filter_large_images):
         results[subset] = filtered_filenames
         print(f"Number of {subset} images suppressed: {suppressed}")
 
-    return results['val']
+    return results['test']
 
 
 

@@ -226,7 +226,7 @@ if __name__ == "__main__":
         masks_path = config.HE_masks_padded
 
         filenames_test, labels_test = eval_utils.get_filenames_and_labels(images_path, ground_truth_rotations)
-        test_data = eval_utils.ImageDataset(image_path=images_path, mask_path=masks_path, subset='val', filenames=filenames_test, labels=labels_test, uniform_distribution=UNIFORM_DISTRIBUTION)
+        test_data = eval_utils.ImageDataset(image_path=images_path, mask_path=masks_path, subset='test', filenames=filenames_test, labels=labels_test, uniform_distribution=UNIFORM_DISTRIBUTION)
 
     elif STAIN == 'IHC':
         ground_truth_rotations = config.IHC_ground_truth_rotations
@@ -234,20 +234,20 @@ if __name__ == "__main__":
         masks_path = config.IHC_masks_padded
 
         filenames_test, labels_test = eval_utils.get_filenames_and_labels(images_path, ground_truth_rotations)
-        test_data = eval_utils.ImageDataset(image_path=images_path, mask_path=masks_path, subset='val', filenames=filenames_test, labels=labels_test,  uniform_distribution=UNIFORM_DISTRIBUTION)
+        test_data = eval_utils.ImageDataset(image_path=images_path, mask_path=masks_path, subset='test', filenames=filenames_test, labels=labels_test,  uniform_distribution=UNIFORM_DISTRIBUTION)
 
     elif STAIN == 'HE+IHC':
         ground_truth_rotations_HE = config.HE_ground_truth_rotations
         images_path_HE = config.HE_crops_masked_padded 
         masks_path_HE = config.HE_masks_padded
         filenames_test_HE, labels_test_HE = eval_utils.get_filenames_and_labels(images_path_HE, ground_truth_rotations_HE)
-        test_data_HE = eval_utils.ImageDataset(image_path=images_path_HE, mask_path=masks_path_HE, subset='val', filenames=filenames_test_HE, labels=labels_test_HE,  uniform_distribution=UNIFORM_DISTRIBUTION)
+        test_data_HE = eval_utils.ImageDataset(image_path=images_path_HE, mask_path=masks_path_HE, subset='test', filenames=filenames_test_HE, labels=labels_test_HE,  uniform_distribution=UNIFORM_DISTRIBUTION)
 
         ground_truth_rotations_IHC = config.IHC_ground_truth_rotations
         images_path_IHC = config.IHC_crops_masked_padded 
         masks_path_IHC = config.IHC_masks_padded
         filenames_test_IHC, labels_test_IHC = eval_utils.get_filenames_and_labels(images_path_IHC, ground_truth_rotations_IHC)
-        test_data_IHC = eval_utils.ImageDataset(image_path=images_path_IHC, mask_path=masks_path_IHC, subset='val', filenames=filenames_test_IHC, labels=labels_test_IHC,  uniform_distribution=UNIFORM_DISTRIBUTION)
+        test_data_IHC = eval_utils.ImageDataset(image_path=images_path_IHC, mask_path=masks_path_IHC, subset='test', filenames=filenames_test_IHC, labels=labels_test_IHC,  uniform_distribution=UNIFORM_DISTRIBUTION)
 
         # Combine
         test_data = ConcatDataset([test_data_HE, test_data_IHC])
