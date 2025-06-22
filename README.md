@@ -11,7 +11,7 @@ A Vision Transformer (ViT) adapted for angle regression to predict object orient
 
 ## Overview
 
-This project uses a ViT model adapted to perform angle regression, allowing it to predict the rotation angle of objects in histopatholy images of skin tissue. The model was trained and evaluated on H&E- and IHC-stained images using PyTorch.
+This project uses a ViT model adapted to perform angle regression, allowing it to predict the rotation angle of skin tissue sections in histopatholy images. The model was trained and evaluated on H&E- and IHC-stained images using PyTorch.
 
 
 ## Installation
@@ -217,4 +217,4 @@ Data/
 
 ## Contributors
 Ema Topolnjak <br>
-Course: Bachelor End Project - Medical Image Analysis
+Bachelor End Project - Medical Image Analysis
